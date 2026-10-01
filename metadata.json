@@ -1,0 +1,6 @@
+{
+  "name": "Habit Tracker",
+  "description": "A personal habit and sobriety tracker with calendar logs, streak tracking, and monthly report analytics in a beautiful handwritten aesthetic.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
