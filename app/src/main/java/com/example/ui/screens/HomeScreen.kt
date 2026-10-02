@@ -183,19 +183,28 @@ fun HomeScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp),
+                    .padding(top = 4.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f).padding(end = 8.dp)
+                    modifier = Modifier.weight(1f).padding(end = 12.dp)
                 ) {
-                    Text(
-                        text = habitIcon,
-                        fontSize = 26.sp,
-                        modifier = Modifier.padding(end = 8.dp)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(primaryColor.copy(alpha = 0.12f))
+                            .border(0.5.dp, primaryColor.copy(alpha = 0.3f), RoundedCornerShape(12.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = habitIcon,
+                            fontSize = 22.sp
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = habitTitle,
@@ -212,7 +221,7 @@ fun HomeScreen(
                                 "morning" -> "🌅 Morning Routine"
                                 "afternoon" -> "☀️ Afternoon Routine"
                                 "evening" -> "🌙 Evening Routine"
-                                else -> "Daily Tracker"
+                                else -> if (activeTracker.targetCount > 1) "Daily Target: ${activeTracker.targetCount}" else "Daily Tracker"
                             },
                             fontSize = 11.sp,
                             color = secondaryTextColor,
@@ -222,64 +231,36 @@ fun HomeScreen(
                     }
                 }
                 
-                // Streak Badge & Quick Action Buttons
+                // Streak Badge Pill
                 val isFrozen = freezeDate != null
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    IconButton(
-                        onClick = { showCloudBackupModal = true },
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clip(CircleShape)
-                            .background(cardBgColor)
-                            .border(0.5.dp, borderColor, CircleShape)
-                    ) {
-                        Text(fontFamily = appFont, text = "☁️", fontSize = 13.sp)
-                    }
+                val streakText = if (activeTracker.type == "bad") {
+                    "🛡️ ${stats.currentStreak}d clean"
+                } else if (activeTracker.type == "misc") {
+                    "📊 ${stats.thisMonthCount} logs"
+                } else {
+                    if (isFrozen) "🧊 ${stats.currentStreak}d" else "🔥 ${stats.currentStreak}d"
+                }
 
-                    IconButton(
-                        onClick = { showDonateDialog = true },
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clip(CircleShape)
-                            .background(cardBgColor)
-                            .border(0.5.dp, if (isSupporter) Color(0xFFFFD700).copy(alpha = 0.6f) else borderColor, CircleShape)
-                    ) {
-                        Text(fontFamily = appFont, text = if (isSupporter) "⭐" else "☕", fontSize = 13.sp)
-                    }
-
-                    // Clickable Streak Pill (Tapping applies freeze if available)
-                    val streakText = if (activeTracker.type == "bad") {
-                        "🛡️ ${stats.currentStreak}d"
-                    } else if (activeTracker.type == "misc") {
-                        "📊 ${stats.thisMonthCount}"
-                    } else {
-                        if (isFrozen) "🧊 ${stats.currentStreak}d" else "🔥 ${stats.currentStreak}d"
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(primaryColor.copy(alpha = if (isFrozen) 0.35f else 0.15f))
-                            .border(0.5.dp, primaryColor.copy(alpha = if (isFrozen) 0.6f else 0.35f), RoundedCornerShape(12.dp))
-                            .clickable {
-                                if (!isFrozen && activeTracker.type == "good") {
-                                    viewModel.applyStreakFreeze()
-                                }
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(primaryColor.copy(alpha = if (isFrozen) 0.30f else 0.14f))
+                        .border(1.dp, primaryColor.copy(alpha = if (isFrozen) 0.6f else 0.35f), RoundedCornerShape(14.dp))
+                        .clickable {
+                            if (!isFrozen && activeTracker.type == "good") {
+                                viewModel.applyStreakFreeze()
                             }
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = streakText,
-                            color = if (primaryColor == Color.White) textColor else primaryColor,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = appFont
-                        )
-                    }
+                        }
+                        .padding(horizontal = 12.dp, vertical = 7.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = streakText,
+                        color = if (primaryColor == Color.White) textColor else primaryColor,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = appFont
+                    )
                 }
             }
 
@@ -409,7 +390,7 @@ fun HomeScreen(
             val todayDateString = remember(today) { today.toString() }
             val todayEntries = completionsByDate[todayDateString] ?: emptyList()
             val todayCount = todayEntries.sumOf { it.count }
-            val isTodayDone = todayCount > 0
+            val isTodayDone = if (activeTracker.targetCount > 1) todayCount >= activeTracker.targetCount else todayCount > 0
 
             Card(
                 colors = CardDefaults.cardColors(
@@ -437,9 +418,9 @@ fun HomeScreen(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .background(if (isTodayDone) primaryColor.copy(alpha = 0.22f) else (if (ThemeStyles.isLightTheme(selectedTheme)) borderColor.copy(alpha = 0.3f) else Color(0xFF1E1E1E))),
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(if (isTodayDone) primaryColor.copy(alpha = 0.22f) else (if (ThemeStyles.isLightTheme(selectedTheme)) borderColor.copy(alpha = 0.3f) else Color(0xFF1E1E1E))),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
@@ -459,7 +440,7 @@ fun HomeScreen(
                                         fontWeight = FontWeight.Bold,
                                         color = textColor
                                     )
-                                    if (isTodayDone) {
+                                    if (todayCount > 0) {
                                         Box(
                                             modifier = Modifier
                                                 .clip(RoundedCornerShape(6.dp))
@@ -467,7 +448,7 @@ fun HomeScreen(
                                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                                         ) {
                                             Text(
-                                                text = if (todayCount > 1) "x$todayCount" else "Done",
+                                                text = if (activeTracker.targetCount > 1) "$todayCount/${activeTracker.targetCount}" else if (todayCount > 1) "x$todayCount" else "Done",
                                                 fontFamily = appFont,
                                                 fontSize = 10.sp,
                                                 fontWeight = FontWeight.Bold,
@@ -480,7 +461,7 @@ fun HomeScreen(
                                     text = if (isTodayDone) {
                                         if (activeTracker.type == "bad") "Slip recorded today" else "Streak safe · Keep going!"
                                     } else {
-                                        if (activeTracker.type == "bad") "Clean today — stay disciplined!" else "Not logged yet — tap to check in!"
+                                        if (activeTracker.type == "bad") "Clean today — stay disciplined!" else if (todayCount > 0) "$todayCount of ${activeTracker.targetCount} logged · Keep going!" else "Not logged yet — tap to check in!"
                                     },
                                     fontFamily = appFont,
                                     fontSize = 11.sp,
@@ -506,7 +487,7 @@ fun HomeScreen(
                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
                         ) {
                             Text(
-                                text = if (isTodayDone) "+1 Log" else "Check In",
+                                text = if (isTodayDone) "+1 Log" else if (todayCount > 0 && activeTracker.targetCount > 1) "+1 Log ($todayCount/${activeTracker.targetCount})" else "Check In",
                                 fontFamily = appFont,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold

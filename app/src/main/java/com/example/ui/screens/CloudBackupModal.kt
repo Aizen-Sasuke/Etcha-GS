@@ -71,7 +71,6 @@ fun CloudBackupModal(
     val clipboardManager = LocalClipboardManager.current
     var isBackingUp by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
-    var showConnectDialog by remember { mutableStateOf(false) }
     var snapshotToRestore by remember { mutableStateOf<CloudBackupSnapshot?>(null) }
     var showRawJsonDialog by remember { mutableStateOf(false) }
     var rawExportJson by remember { mutableStateOf("") }
@@ -115,7 +114,7 @@ fun CloudBackupModal(
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close", tint = textColor)
                         }
                         Text(
-                            text = "Cloud Backup & Sync",
+                            text = "Snapshots & Backup",
                             fontFamily = appFont,
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
@@ -124,17 +123,13 @@ fun CloudBackupModal(
                             textAlign = TextAlign.Center
                         )
                         IconButton(onClick = {
-                            if (googleEmail != null) {
-                                isBackingUp = true
-                                viewModel.performCloudBackup { success, msg ->
-                                    isBackingUp = false
-                                    statusMessage = msg
-                                }
-                            } else {
-                                showConnectDialog = true
+                            isBackingUp = true
+                            viewModel.performCloudBackup { _, msg ->
+                                isBackingUp = false
+                                statusMessage = msg
                             }
                         }) {
-                            Icon(Icons.Default.Refresh, contentDescription = "Sync", tint = primaryColor)
+                            Icon(Icons.Default.Refresh, contentDescription = "Create Snapshot", tint = primaryColor)
                         }
                     }
 
@@ -147,7 +142,7 @@ fun CloudBackupModal(
                         verticalArrangement = Arrangement.spacedBy(14.dp),
                         contentPadding = PaddingValues(top = 8.dp, bottom = 40.dp)
                     ) {
-                        // 1. Google Account Connection Card
+                        // 1. Honest Storage Information Card
                         item {
                             Card(
                                 colors = CardDefaults.cardColors(containerColor = cardBgColor),
@@ -157,81 +152,33 @@ fun CloudBackupModal(
                             ) {
                                 Column(modifier = Modifier.padding(16.dp)) {
                                     Row(
-                                        modifier = Modifier.fillMaxWidth(),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                                     ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                        ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(44.dp)
-                                                    .clip(CircleShape)
-                                                    .background(if (googleEmail != null) primaryColor.copy(alpha = 0.2f) else Color.Gray.copy(alpha = 0.2f)),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                if (googleEmail != null) {
-                                                    Text(
-                                                        text = (googleName?.firstOrNull() ?: googleEmail?.firstOrNull() ?: 'G').uppercase(),
-                                                        fontFamily = appFont,
-                                                        fontWeight = FontWeight.Bold,
-                                                        fontSize = 18.sp,
-                                                        color = primaryColor
-                                                    )
-                                                } else {
-                                                    Text("☁️", fontSize = 20.sp)
-                                                }
-                                            }
-
-                                            Column {
-                                                Text(
-                                                    text = if (googleEmail != null) (googleName ?: "Google Account") else "Google Account Cloud",
-                                                    fontFamily = appFont,
-                                                    fontSize = 15.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = textColor
-                                                )
-                                                Text(
-                                                    text = googleEmail ?: "Not linked yet",
-                                                    fontFamily = appFont,
-                                                    fontSize = 12.sp,
-                                                    color = if (googleEmail != null) primaryColor else secondaryTextColor
-                                                )
-                                            }
-                                        }
-
-                                        if (googleEmail != null) {
-                                            TextButton(onClick = { viewModel.disconnectGoogleAccount() }) {
-                                                Text("Unlink", fontFamily = appFont, color = Color(0xFFE57373), fontSize = 12.sp)
-                                            }
-                                        } else {
-                                            Button(
-                                                onClick = { showConnectDialog = true },
-                                                colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = if (ThemeStyles.isThemeDark(selectedTheme)) Color.Black else Color.White),
-                                                shape = RoundedCornerShape(12.dp),
-                                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
-                                            ) {
-                                                Text("Connect", fontFamily = appFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                            }
-                                        }
-                                    }
-
-                                    if (isSupporter) {
-                                        Spacer(modifier = Modifier.height(10.dp))
                                         Box(
                                             modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(Color(0xFFFFD700).copy(alpha = 0.12f))
-                                                .border(0.5.dp, Color(0xFFFFD700).copy(alpha = 0.4f), RoundedCornerShape(8.dp))
-                                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                                .size(44.dp)
+                                                .clip(CircleShape)
+                                                .background(primaryColor.copy(alpha = 0.15f)),
+                                            contentAlignment = Alignment.Center
                                         ) {
-                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                                Text("⭐", fontSize = 12.sp)
-                                                Text("VIP Supporter: Real-Time Priority Cloud Mirroring Active", fontFamily = appFont, fontSize = 11.sp, color = Color(0xFFFFD700), fontWeight = FontWeight.SemiBold)
-                                            }
+                                            Text("💾", fontSize = 20.sp)
+                                        }
+
+                                        Column {
+                                            Text(
+                                                text = "Local Storage & Snapshots",
+                                                fontFamily = appFont,
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = textColor
+                                            )
+                                            Text(
+                                                text = "All data is stored private and offline on this device",
+                                                fontFamily = appFont,
+                                                fontSize = 12.sp,
+                                                color = secondaryTextColor
+                                            )
                                         }
                                     }
                                 }
@@ -263,7 +210,7 @@ fun CloudBackupModal(
                             }
                         }
 
-                        // 2. Cloud Backup Actions Card
+                        // 2. Snapshot Actions Card
                         item {
                             Card(
                                 colors = CardDefaults.cardColors(containerColor = cardBgColor),
@@ -278,23 +225,13 @@ fun CloudBackupModal(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Column {
-                                            Text("Last Cloud Sync", fontFamily = appFont, fontSize = 12.sp, color = secondaryTextColor)
+                                            Text("Last Snapshot", fontFamily = appFont, fontSize = 12.sp, color = secondaryTextColor)
                                             Text(
-                                                text = lastBackup ?: "Never backed up",
+                                                text = lastBackup ?: "No snapshot created yet",
                                                 fontFamily = appFont,
                                                 fontSize = 14.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 color = textColor
-                                            )
-                                        }
-
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text("Auto-Sync", fontFamily = appFont, fontSize = 12.sp, color = secondaryTextColor)
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Switch(
-                                                checked = autoBackup,
-                                                onCheckedChange = { viewModel.setAutoCloudBackup(it) },
-                                                colors = SwitchDefaults.colors(checkedThumbColor = primaryColor, checkedTrackColor = primaryColor.copy(alpha = 0.5f))
                                             )
                                         }
                                     }
@@ -303,14 +240,10 @@ fun CloudBackupModal(
 
                                     Button(
                                         onClick = {
-                                            if (googleEmail == null) {
-                                                showConnectDialog = true
-                                            } else {
-                                                isBackingUp = true
-                                                viewModel.performCloudBackup { success, msg ->
-                                                    isBackingUp = false
-                                                    statusMessage = msg
-                                                }
+                                            isBackingUp = true
+                                            viewModel.performCloudBackup { _, msg ->
+                                                isBackingUp = false
+                                                statusMessage = msg
                                             }
                                         },
                                         enabled = !isBackingUp,
@@ -321,19 +254,19 @@ fun CloudBackupModal(
                                         if (isBackingUp) {
                                             CircularProgressIndicator(modifier = Modifier.size(16.dp), color = if (ThemeStyles.isThemeDark(selectedTheme)) Color.Black else Color.White, strokeWidth = 2.dp)
                                             Spacer(modifier = Modifier.width(8.dp))
-                                            Text("Backing up...", fontFamily = appFont, fontSize = 13.sp)
+                                            Text("Saving snapshot...", fontFamily = appFont, fontSize = 13.sp)
                                         } else {
-                                            Text("☁️ Back Up Now to Google Cloud", fontFamily = appFont, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                            Text("💾 Create Device Restore Point", fontFamily = appFont, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                                         }
                                     }
                                 }
                             }
                         }
 
-                        // 3. Cloud Snapshots / Restore History
+                        // 3. Saved Snapshots
                         item {
                             Text(
-                                text = "CLOUD SNAPSHOTS & RESTORE",
+                                text = "SAVED RESTORE POINTS",
                                 fontFamily = appFont,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
@@ -452,66 +385,6 @@ fun CloudBackupModal(
                             }
                         }
                     }
-                }
-
-                // Connect Google Account Dialog
-                if (showConnectDialog) {
-                    var emailInput by remember { mutableStateOf(googleEmail ?: "user@gmail.com") }
-                    var nameInput by remember { mutableStateOf(googleName ?: "Habit Builder") }
-
-                    AlertDialog(
-                        onDismissRequest = { showConnectDialog = false },
-                        containerColor = cardBgColor,
-                        title = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("🌐 ", fontSize = 18.sp)
-                                Text("Connect Google Account", fontFamily = appFont, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = textColor)
-                            }
-                        },
-                        text = {
-                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Text(
-                                    "Link your Google Account to automatically mirror habits, check-ins, journal reflections, and settings securely to Google Cloud.",
-                                    fontFamily = appFont,
-                                    fontSize = 12.sp,
-                                    color = secondaryTextColor
-                                )
-                                OutlinedTextField(
-                                    value = emailInput,
-                                    onValueChange = { emailInput = it },
-                                    label = { Text("Google Email", fontFamily = appFont, fontSize = 12.sp) },
-                                    singleLine = true,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                OutlinedTextField(
-                                    value = nameInput,
-                                    onValueChange = { nameInput = it },
-                                    label = { Text("Display Name", fontFamily = appFont, fontSize = 12.sp) },
-                                    singleLine = true,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
-                        },
-                        confirmButton = {
-                            Button(
-                                onClick = {
-                                    if (emailInput.isNotBlank()) {
-                                        viewModel.connectGoogleAccount(emailInput, nameInput)
-                                        showConnectDialog = false
-                                        statusMessage = "Google Account linked: $emailInput"
-                                    }
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = if (ThemeStyles.isThemeDark(selectedTheme)) Color.Black else Color.White)
-                            ) {
-                                Text("Link & Sync", fontFamily = appFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                            }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { showConnectDialog = false }) {
-                                Text("Cancel", fontFamily = appFont, color = secondaryTextColor, fontSize = 12.sp)
-                            }
-                        }
-                    )
                 }
 
                 // Restore Confirmation Dialog

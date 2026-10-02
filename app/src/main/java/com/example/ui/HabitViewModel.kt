@@ -7,6 +7,7 @@ import com.example.data.AppDatabase
 import com.example.data.HabitEntry
 import com.example.data.HabitRepository
 import com.example.data.Tracker
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -17,9 +18,9 @@ import kotlin.math.abs
 import org.json.JSONArray
 import org.json.JSONObject
 
-class HabitViewModel(application: Application) : AndroidViewModel(application) {
+open class HabitViewModel(application: Application) : AndroidViewModel(application) {
     private val appDb = AppDatabase.getDatabase(application)
-    private val repository: HabitRepository = HabitRepository(appDb.habitDao(), appDb.trackerDao())
+    private val repository: HabitRepository = HabitRepository(appDb, appDb.habitDao(), appDb.trackerDao())
     
     // Expose flows of raw tables
     private val rawEntries: Flow<List<HabitEntry>> = repository.allEntries
@@ -88,9 +89,10 @@ class HabitViewModel(application: Application) : AndroidViewModel(application) {
     val habitIcon: StateFlow<String> = activeTracker.map { it.icon }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "🚭")
 
-    // Filtered entries flow reactively bound to active trackerId
-    val entries: Flow<List<HabitEntry>> = combine(rawEntries, selectedTrackerId) { all, activeId ->
-        all.filter { it.trackerId == activeId }
+    // Filtered entries flow reactively bound to active trackerId using indexed Room query
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val entries: Flow<List<HabitEntry>> = activeTracker.map { it.id }.distinctUntilChanged().flatMapLatest { activeId ->
+        repository.getEntriesForTracker(activeId)
     }
 
     val selectedTheme: StateFlow<String> = preferences.map { prefs ->
@@ -283,7 +285,7 @@ class HabitViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun getEffectiveToday(): LocalDate {
+    open fun getEffectiveToday(): LocalDate {
         val rollover = dayRolloverHour.value
         val now = java.time.LocalDateTime.now()
         return if (now.hour < rollover) {
@@ -481,8 +483,8 @@ class HabitViewModel(application: Application) : AndroidViewModel(application) {
     fun clearEntriesForDate(dateString: String) {
         viewModelScope.launch {
             val currentId = selectedTrackerId.value
-            val existing = repository.getEntriesForDate(dateString).filter { it.trackerId == currentId }
-            existing.forEach { repository.deleteEntry(it) }
+            repository.deleteEntriesForTrackerAndDate(currentId, dateString)
+            updateWidget()
         }
     }
 
@@ -574,19 +576,50 @@ class HabitViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun getScheduledDaysOfWeek(tracker: TrackerConfig): Set<java.time.DayOfWeek> {
+        return when (tracker.frequencyType) {
+            "weekdays" -> setOf(
+                java.time.DayOfWeek.MONDAY,
+                java.time.DayOfWeek.TUESDAY,
+                java.time.DayOfWeek.WEDNESDAY,
+                java.time.DayOfWeek.THURSDAY,
+                java.time.DayOfWeek.FRIDAY
+            )
+            "custom_days", "weekly" -> {
+                val parts = tracker.targetDays.split(",").map { it.trim().uppercase() }
+                val set = mutableSetOf<java.time.DayOfWeek>()
+                for (p in parts) {
+                    when (p) {
+                        "MON" -> set.add(java.time.DayOfWeek.MONDAY)
+                        "TUE" -> set.add(java.time.DayOfWeek.TUESDAY)
+                        "WED" -> set.add(java.time.DayOfWeek.WEDNESDAY)
+                        "THU" -> set.add(java.time.DayOfWeek.THURSDAY)
+                        "FRI" -> set.add(java.time.DayOfWeek.FRIDAY)
+                        "SAT" -> set.add(java.time.DayOfWeek.SATURDAY)
+                        "SUN" -> set.add(java.time.DayOfWeek.SUNDAY)
+                    }
+                }
+                if (set.isEmpty()) java.time.DayOfWeek.values().toSet() else set
+            }
+            else -> java.time.DayOfWeek.values().toSet()
+        }
+    }
+
     private fun calculateHabitStrength(
         list: List<HabitEntry>,
         today: LocalDate,
-        trackerType: String,
-        frequencyType: String,
-        targetDays: String
+        tracker: TrackerConfig
     ): Pair<Int, String> {
         if (list.isEmpty()) return Pair(0, "Starting 🌱")
 
         val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
-        val completionDates = list.filter { it.count > 0 }.mapNotNull {
-            try { LocalDate.parse(it.dateString, formatter) } catch (e: Exception) { null }
-        }.toSet()
+        val target = tracker.targetCount.coerceAtLeast(1)
+        val completionDates = list.groupBy { it.dateString }
+            .filter { (_, entries) -> entries.sumOf { it.count } >= target }
+            .keys
+            .mapNotNull {
+                try { LocalDate.parse(it, formatter) } catch (e: Exception) { null }
+            }.toSet()
 
         val sortedDates = list.mapNotNull {
             try { LocalDate.parse(it.dateString, formatter) } catch (e: Exception) { null }
@@ -595,17 +628,7 @@ class HabitViewModel(application: Application) : AndroidViewModel(application) {
         if (sortedDates.isEmpty()) return Pair(0, "Starting 🌱")
 
         val startDate = sortedDates.first().coerceAtLeast(today.minusDays(180))
-
-        val allowedDaysSet = when (frequencyType) {
-            "weekdays" -> setOf(
-                java.time.DayOfWeek.MONDAY,
-                java.time.DayOfWeek.TUESDAY,
-                java.time.DayOfWeek.WEDNESDAY,
-                java.time.DayOfWeek.THURSDAY,
-                java.time.DayOfWeek.FRIDAY
-            )
-            else -> java.time.DayOfWeek.values().toSet()
-        }
+        val allowedDaysSet = getScheduledDaysOfWeek(tracker)
 
         var strength = 0.0
         val alpha = 0.05
@@ -614,7 +637,7 @@ class HabitViewModel(application: Application) : AndroidViewModel(application) {
         var cur = startDate
         while (!cur.isAfter(today)) {
             val isTargetDay = cur.dayOfWeek in allowedDaysSet
-            if (trackerType == "bad") {
+            if (tracker.type == "bad") {
                 val hadSlip = cur in completionDates
                 if (!hadSlip) {
                     strength += alpha * (1.0 - strength)
@@ -653,9 +676,7 @@ class HabitViewModel(application: Application) : AndroidViewModel(application) {
         val currentMonth = today.monthValue
 
         val totalSum = list.sumOf { it.count }
-        val (strengthScore, strengthStatus) = calculateHabitStrength(
-            list, today, tracker.type, tracker.frequencyType, tracker.targetDays
-        )
+        val (strengthScore, strengthStatus) = calculateHabitStrength(list, today, tracker)
 
         // Filter and calculate yearly and monthly counts
         var thisYearSum = 0
@@ -810,10 +831,9 @@ class HabitViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
-        // Streaks calculation based on dates with entries (having count > 0)
-        val activeDates = list.filter { it.count > 0 }.map { it.dateString }.toSet()
+        // Streaks calculation based on dates with entries meeting target count
         val frozenDates = freezeHist.split(",").filter { it.isNotBlank() }.toSet()
-        val streakRes = calculateStreaks(activeDates, frozenDates, freezeActive, today)
+        val streakRes = calculateStreaks(list, frozenDates, freezeActive, today, tracker)
 
         return HabitStats(
             totalCount = totalSum,
@@ -832,22 +852,67 @@ class HabitViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun calculateStreaks(
-        baseDates: Set<String>, 
+        list: List<HabitEntry>,
         frozenDates: Set<String>, 
         activeFreeze: String?,
-        today: LocalDate
+        today: LocalDate,
+        tracker: TrackerConfig
     ): StreakResult {
-        val dates = baseDates + frozenDates + listOfNotNull(activeFreeze)
+        val target = tracker.targetCount.coerceAtLeast(1)
+        val completedDates = list
+            .groupBy { it.dateString }
+            .filter { (_, entries) -> entries.sumOf { it.count } >= target }
+            .keys
+            .toSet()
+
+        val dates = completedDates + frozenDates + listOfNotNull(activeFreeze)
+        val scheduledDays = getScheduledDaysOfWeek(tracker)
+        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+
         if (dates.isEmpty()) return StreakResult(0, 0, null, null)
 
-        // Parse and sort dates
-        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
-        val sortedDates = dates.mapNotNull {
+        val parsedDates = dates.mapNotNull {
             try { LocalDate.parse(it, formatter) } catch(e: Exception) { null }
         }.sorted()
 
-        if (sortedDates.isEmpty()) return StreakResult(0, 0, null, null)
+        if (parsedDates.isEmpty()) return StreakResult(0, 0, null, null)
 
+        val dateSet = parsedDates.toSet()
+        val firstDate = parsedDates.first()
+
+        // 1. Current Streak calculation:
+        var currentStreak = 0
+        var checkDate = today
+
+        val isTodayScheduled = today.dayOfWeek in scheduledDays
+        val isTodayCompleted = today in dateSet
+
+        if (isTodayScheduled) {
+            if (isTodayCompleted) {
+                currentStreak++
+                checkDate = today.minusDays(1)
+            } else {
+                checkDate = today.minusDays(1)
+            }
+        } else {
+            checkDate = today.minusDays(1)
+        }
+
+        while (!checkDate.isBefore(firstDate.minusDays(7))) {
+            if (checkDate.dayOfWeek in scheduledDays) {
+                if (checkDate in dateSet) {
+                    currentStreak++
+                    checkDate = checkDate.minusDays(1)
+                } else {
+                    break
+                }
+            } else {
+                // Rest day (non-scheduled): keep walking backward without breaking streak
+                checkDate = checkDate.minusDays(1)
+            }
+        }
+
+        // 2. Best Streak calculation:
         var bestStreak = 0
         var bestStart: LocalDate? = null
         var bestEnd: LocalDate? = null
@@ -855,58 +920,32 @@ class HabitViewModel(application: Application) : AndroidViewModel(application) {
         var tempStreak = 0
         var tempStart: LocalDate? = null
         var tempEnd: LocalDate? = null
-        var previousDate: LocalDate? = null
 
-        for (date in sortedDates) {
-            if (previousDate == null) {
-                tempStreak = 1
-                tempStart = date
-                tempEnd = date
-            } else {
-                val daysBetween = ChronoUnit.DAYS.between(previousDate, date)
-                if (daysBetween == 1L) {
+        var cur = firstDate
+        while (!cur.isAfter(today)) {
+            if (cur.dayOfWeek in scheduledDays) {
+                if (cur in dateSet) {
+                    if (tempStreak == 0) {
+                        tempStart = cur
+                    }
                     tempStreak++
-                    tempEnd = date
-                } else if (daysBetween > 1L) {
+                    tempEnd = cur
                     if (tempStreak > bestStreak) {
                         bestStreak = tempStreak
                         bestStart = tempStart
                         bestEnd = tempEnd
                     }
-                    tempStreak = 1
-                    tempStart = date
-                    tempEnd = date
-                } else if (daysBetween == 0L) {
-                    // Same day (duplicate date entries), ignore in streak count increment
+                } else {
+                    tempStreak = 0
+                    tempStart = null
+                    tempEnd = null
                 }
             }
-            previousDate = date
-        }
-        if (tempStreak > bestStreak) {
-            bestStreak = tempStreak
-            bestStart = tempStart
-            bestEnd = tempEnd
+            cur = cur.plusDays(1)
         }
 
-        // Current streak going backward from today or yesterday
-        val yesterday = today.minusDays(1)
-
-        val todayStr = today.format(formatter)
-        val yesterdayStr = yesterday.format(formatter)
-
-        val containsToday = dates.contains(todayStr)
-        val containsYesterday = dates.contains(yesterdayStr)
-
-        val currentStreak = if (containsToday || containsYesterday) {
-            var checkDate = if (containsToday) today else yesterday
-            var streakCount = 0
-            while (dates.contains(checkDate.format(formatter))) {
-                streakCount++
-                checkDate = checkDate.minusDays(1)
-            }
-            streakCount
-        } else {
-            0
+        if (bestStreak < currentStreak) {
+            bestStreak = currentStreak
         }
 
         return StreakResult(currentStreak, bestStreak, bestStart, bestEnd)
@@ -971,28 +1010,29 @@ class HabitViewModel(application: Application) : AndroidViewModel(application) {
             val mainObj = JSONObject(jsonString)
             if (mainObj.optString("app") != "HabitTrackerBackup") return false
 
+            val logsArray = mainObj.optJSONArray("entries") ?: return false
+            val trackerId = selectedTrackerId.value
+            val entriesToImport = mutableListOf<HabitEntry>()
+            for (i in 0 until logsArray.length()) {
+                val item = logsArray.getJSONObject(i)
+                val date = item.getString("date")
+                val count = item.getInt("count")
+                val timestamp = item.getLong("timestamp")
+                val notes = item.optString("notes", "")
+                entriesToImport.add(
+                    HabitEntry(
+                        dateString = date,
+                        count = count,
+                        timestamp = timestamp,
+                        notes = if (notes.isEmpty()) null else notes,
+                        trackerId = trackerId
+                    )
+                )
+            }
+
             viewModelScope.launch {
-                // Import entries
-                val logsArray = mainObj.optJSONArray("entries")
-                if (logsArray != null) {
-                    val trackerId = selectedTrackerId.value
-                    for (i in 0 until logsArray.length()) {
-                        val item = logsArray.getJSONObject(i)
-                        val date = item.getString("date")
-                        val count = item.getInt("count")
-                        val timestamp = item.getLong("timestamp")
-                        val notes = item.optString("notes", "")
-                        repository.insertEntry(
-                            HabitEntry(
-                                dateString = date,
-                                count = count,
-                                timestamp = timestamp,
-                                notes = if (notes.isEmpty()) null else notes,
-                                trackerId = trackerId
-                            )
-                        )
-                    }
-                }
+                repository.importEntriesDeduplicated(entriesToImport)
+                updateWidget()
             }
             true
         } catch (e: Exception) {
@@ -1106,11 +1146,12 @@ class HabitViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 // 1. Restore Trackers
+                val trackersList = mutableListOf<Tracker>()
                 val trackersArr = root.optJSONArray("trackers")
                 if (trackersArr != null) {
                     for (i in 0 until trackersArr.length()) {
                         val obj = trackersArr.getJSONObject(i)
-                        repository.insertTracker(
+                        trackersList.add(
                             Tracker(
                                 id = obj.getString("id"),
                                 title = obj.getString("title"),
@@ -1128,12 +1169,13 @@ class HabitViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 // 2. Restore Entries
+                val entriesList = mutableListOf<HabitEntry>()
                 val entriesArr = root.optJSONArray("entries")
                 if (entriesArr != null) {
                     for (i in 0 until entriesArr.length()) {
                         val obj = entriesArr.getJSONObject(i)
                         val notes = obj.optString("notes", "")
-                        repository.insertEntry(
+                        entriesList.add(
                             HabitEntry(
                                 dateString = obj.getString("date"),
                                 count = obj.getInt("count"),
@@ -1146,17 +1188,19 @@ class HabitViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 // 3. Restore Preferences
+                val prefsMap = mutableMapOf<String, String>()
                 val prefsObj = root.optJSONObject("preferences")
                 if (prefsObj != null) {
                     val keys = prefsObj.keys()
                     while (keys.hasNext()) {
                         val k = keys.next()
                         if (k != "cloud_backup_history") {
-                            repository.setPreference(k, prefsObj.getString(k))
+                            prefsMap[k] = prefsObj.getString(k)
                         }
                     }
                 }
 
+                repository.restoreDatabaseTransaction(trackersList, entriesList, prefsMap)
                 updateWidget()
                 onComplete(true)
             } catch (e: Exception) {

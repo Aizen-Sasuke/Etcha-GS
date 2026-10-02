@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
     <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
 
     <application
         android:allowBackup="true"
@@ -16,7 +17,14 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.MyApplication">
         
-        <receiver android:name=".worker.ReminderReceiver" android:exported="false" />
+        <receiver
+            android:name=".worker.ReminderReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <receiver
             android:name=".widget.HabitAppWidgetProvider"
@@ -24,6 +32,7 @@
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
                 <action android:name="com.example.ACTION_UPDATE_HABIT_WIDGET" />
+                <action android:name="com.example.ACTION_WIDGET_CHECK_IN" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"

@@ -14,6 +14,9 @@ interface TrackerDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTracker(tracker: Tracker)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertTrackers(trackers: List<Tracker>)
+
     @Update
     suspend fun updateTracker(tracker: Tracker)
 
@@ -22,4 +25,7 @@ interface TrackerDao {
     
     @Query("DELETE FROM trackers WHERE id = :id")
     suspend fun deleteTrackerById(id: String)
+
+    @Query("DELETE FROM trackers")
+    suspend fun deleteAllTrackers()
 }

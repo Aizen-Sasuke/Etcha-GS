@@ -59,16 +59,29 @@ fun DailyJournalModal(
         allEntries.find { it.dateString == targetDateString && it.trackerId == activeTracker.id }
     }
 
-    var selectedMood by remember {
+    var hasUserEdited by remember(targetDateString, activeTracker.id) { mutableStateOf(false) }
+
+    var selectedMood by remember(targetDateString, activeTracker.id) {
         val existingNotes = existingEntryForDate?.notes ?: ""
         val match = Regex("\\[MOOD:([^\\]]+)\\]").find(existingNotes)
         mutableStateOf(match?.groupValues?.get(1) ?: "😊")
     }
 
-    var journalText by remember {
+    var journalText by remember(targetDateString, activeTracker.id) {
         val existingNotes = existingEntryForDate?.notes ?: ""
         val cleanNotes = existingNotes.replace(Regex("\\[MOOD:[^\\]]+\\]"), "").trim()
         mutableStateOf(cleanNotes)
+    }
+
+    LaunchedEffect(existingEntryForDate) {
+        if (!hasUserEdited && existingEntryForDate != null) {
+            val existingNotes = existingEntryForDate.notes ?: ""
+            val match = Regex("\\[MOOD:([^\\]]+)\\]").find(existingNotes)
+            if (match != null) {
+                selectedMood = match.groupValues[1]
+            }
+            journalText = existingNotes.replace(Regex("\\[MOOD:[^\\]]+\\]"), "").trim()
+        }
     }
 
     var activeTab by remember { mutableStateOf("write") } // "write" or "timeline"
@@ -200,7 +213,10 @@ fun DailyJournalModal(
                                     val isMoodSelected = selectedMood == emoji
                                     Column(
                                         horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier.clickable { selectedMood = emoji }
+                                        modifier = Modifier.clickable { 
+                                            selectedMood = emoji 
+                                            hasUserEdited = true
+                                        }
                                     ) {
                                         Box(
                                             modifier = Modifier
@@ -248,6 +264,7 @@ fun DailyJournalModal(
                                             .background(primaryColor.copy(alpha = 0.08f))
                                             .border(0.5.dp, primaryColor.copy(alpha = 0.25f), RoundedCornerShape(8.dp))
                                             .clickable {
+                                                hasUserEdited = true
                                                 if (!journalText.contains(prompt)) {
                                                     journalText = if (journalText.isBlank()) "$prompt\n" else "$journalText\n\n$prompt\n"
                                                 }
@@ -268,7 +285,10 @@ fun DailyJournalModal(
                             // Multi-line Text Editor
                             OutlinedTextField(
                                 value = journalText,
-                                onValueChange = { journalText = it },
+                                onValueChange = { 
+                                    journalText = it 
+                                    hasUserEdited = true
+                                },
                                 placeholder = {
                                     Text(
                                         text = "Write your thoughts, reflections, or notes for today...",

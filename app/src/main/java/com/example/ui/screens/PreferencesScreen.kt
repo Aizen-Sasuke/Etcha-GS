@@ -535,10 +535,10 @@ fun PreferencesScreen(
                 }
             }
 
-            // Google Account Cloud Backup & Sync Card
+            // Snapshots & Data Backup Card
             Card(
                 colors = CardDefaults.cardColors(containerColor = cardBgColor),
-                border = BorderStroke(0.5.dp, if (googleEmail != null) primaryColor.copy(alpha = 0.5f) else borderColor),
+                border = BorderStroke(0.5.dp, borderColor),
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -555,21 +555,21 @@ fun PreferencesScreen(
                                 modifier = Modifier
                                     .size(36.dp)
                                     .clip(CircleShape)
-                                    .background(if (googleEmail != null) primaryColor.copy(alpha = 0.2f) else neutralBg),
+                                    .background(primaryColor.copy(alpha = 0.2f)),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(if (googleEmail != null) "☁️" else "🌐", fontSize = 18.sp)
+                                Text("💾", fontSize = 18.sp)
                             }
                             Column {
                                 Text(
-                                    text = "Google Cloud Backup & Sync",
+                                    text = "Snapshots & Data Backup",
                                     color = textColor,
                                     fontSize = 15.sp,
                                     fontFamily = appFont,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    text = if (googleEmail != null) "Linked: $googleEmail · ${lastBackupTime ?: "Ready to sync"}" else "Sync habits, journals & streaks via Google Account",
+                                    text = if (lastBackupTime != null) "Last snapshot: $lastBackupTime" else "Offline restore points and portable JSON backups",
                                     color = secondaryTextColor,
                                     fontFamily = appFont,
                                     fontSize = 11.sp
@@ -585,7 +585,7 @@ fun PreferencesScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = if (googleEmail != null) "☁️ Manage Cloud Backups & Sync" else "🌐 Connect Google Account for Cloud Backup",
+                            text = "💾 Manage Snapshots & JSON Backups",
                             fontFamily = appFont,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
