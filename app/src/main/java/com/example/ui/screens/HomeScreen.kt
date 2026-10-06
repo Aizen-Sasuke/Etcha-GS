@@ -102,6 +102,45 @@ fun HomeScreen(
     var showDailyJournalDialog by remember { mutableStateOf(false) }
     var showCloudBackupModal by remember { mutableStateOf(false) }
     var journalTargetDate by remember { mutableStateOf<LocalDate?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    val triggerQuickCheckIn: (String, String?) -> Unit = { dateStr, mood ->
+        val isBad = activeTracker.type == "bad"
+        viewModel.quickIncrement(dateStr, mood) { record ->
+            if (isBad) {
+                // Neutral feedback for relapse: NO celebratory confetti, subtle non-celebratory haptic
+                hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            } else {
+                // Normal positive habit: keep existing successful celebration
+                if (celebrationsEnabled) {
+                    showConfetti = true
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                }
+            }
+
+            val message = if (isBad) {
+                "Slip logged for ${activeTracker.icon} ${activeTracker.title}"
+            } else {
+                if (activeTracker.targetCount > 1) {
+                    "Logged ${activeTracker.icon} ${activeTracker.title} (${record.newCount}/${activeTracker.targetCount})"
+                } else {
+                    "Logged ${activeTracker.icon} ${activeTracker.title}"
+                }
+            }
+
+            coroutineScope.launch {
+                snackbarHostState.currentSnackbarData?.dismiss()
+                val result = snackbarHostState.showSnackbar(
+                    message = message,
+                    actionLabel = "Undo",
+                    duration = SnackbarDuration.Short
+                )
+                if (result == SnackbarResult.ActionPerformed) {
+                    viewModel.undoQuickCheckIn(record.token)
+                }
+            }
+        }
+    }
     
     // Calculate total completions in currently selected month
     val selectedMonthEntriesCount = remember(currentYearMonth, completionsByDate) {
@@ -392,13 +431,33 @@ fun HomeScreen(
             val todayCount = todayEntries.sumOf { it.count }
             val isTodayDone = if (activeTracker.targetCount > 1) todayCount >= activeTracker.targetCount else todayCount > 0
 
+            val isWeeklyQuota = activeTracker.frequencyType == "weekly_quota"
+            val weeklyTarget = activeTracker.weeklyTarget.coerceIn(1, 7)
+            val currentWeekCompletedDays = remember(activeTracker, completionsByDate, today) {
+                if (!isWeeklyQuota) 0 else {
+                    val monday = today.with(java.time.DayOfWeek.MONDAY)
+                    val targetDaily = activeTracker.targetCount.coerceAtLeast(1)
+                    var count = 0
+                    for (d in 0..6) {
+                        val dStr = monday.plusDays(d.toLong()).toString()
+                        val daySum = completionsByDate[dStr]?.sumOf { it.count } ?: 0
+                        if (daySum >= targetDaily) {
+                            count++
+                        }
+                    }
+                    count
+                }
+            }
+            val isWeekQuotaCompleted = isWeeklyQuota && currentWeekCompletedDays >= weeklyTarget
+            val isCardHighlight = if (isWeeklyQuota) isWeekQuotaCompleted else isTodayDone
+
             Card(
                 colors = CardDefaults.cardColors(
-                    containerColor = if (isTodayDone) primaryColor.copy(alpha = 0.12f) else cardBgColor
+                    containerColor = if (isCardHighlight) primaryColor.copy(alpha = 0.12f) else cardBgColor
                 ),
                 border = BorderStroke(
-                    width = if (isTodayDone) 1.dp else 0.5.dp,
-                    color = if (isTodayDone) primaryColor.copy(alpha = 0.55f) else borderColor
+                    width = if (isCardHighlight) 1.dp else 0.5.dp,
+                    color = if (isCardHighlight) primaryColor.copy(alpha = 0.55f) else borderColor
                 ),
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
@@ -411,6 +470,14 @@ fun HomeScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        val isBadHabit = activeTracker.type == "bad"
+                        val buttonText = when {
+                            isBadHabit -> if (todayCount > 0) "Log Slip (+1)" else "Log Slip"
+                            isTodayDone -> "+1 Log"
+                            todayCount > 0 && activeTracker.targetCount > 1 -> "+1 Log ($todayCount/${activeTracker.targetCount})"
+                            else -> "Check In"
+                        }
+
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -420,14 +487,20 @@ fun HomeScreen(
                                 modifier = Modifier
                                 .size(40.dp)
                                 .clip(CircleShape)
-                                .background(if (isTodayDone) primaryColor.copy(alpha = 0.22f) else (if (ThemeStyles.isLightTheme(selectedTheme)) borderColor.copy(alpha = 0.3f) else Color(0xFF1E1E1E))),
+                                .background(
+                                    if (isCardHighlight) {
+                                        if (isBadHabit) Color.Red.copy(alpha = 0.15f) else primaryColor.copy(alpha = 0.22f)
+                                    } else {
+                                        if (ThemeStyles.isLightTheme(selectedTheme)) borderColor.copy(alpha = 0.3f) else Color(0xFF1E1E1E)
+                                    }
+                                ),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    text = if (isTodayDone) "✓" else activeTracker.icon,
-                                    fontSize = if (isTodayDone) 20.sp else 18.sp,
+                                    text = if (isCardHighlight) (if (isBadHabit) "✕" else "✓") else activeTracker.icon,
+                                    fontSize = if (isCardHighlight) 20.sp else 18.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (isTodayDone) primaryColor else textColor
+                                    color = if (isCardHighlight) (if (isBadHabit) Color(0xFFEF5350) else primaryColor) else textColor
                                 )
                             }
 
@@ -440,28 +513,51 @@ fun HomeScreen(
                                         fontWeight = FontWeight.Bold,
                                         color = textColor
                                     )
-                                    if (todayCount > 0) {
+                                    if (isWeeklyQuota) {
                                         Box(
                                             modifier = Modifier
                                                 .clip(RoundedCornerShape(6.dp))
-                                                .background(primaryColor.copy(alpha = 0.2f))
+                                                .background(if (isWeekQuotaCompleted) primaryColor.copy(alpha = 0.2f) else borderColor.copy(alpha = 0.35f))
                                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                                         ) {
                                             Text(
-                                                text = if (activeTracker.targetCount > 1) "$todayCount/${activeTracker.targetCount}" else if (todayCount > 1) "x$todayCount" else "Done",
+                                                text = if (isWeekQuotaCompleted) "Week Done ($currentWeekCompletedDays/$weeklyTarget)" else "$currentWeekCompletedDays/$weeklyTarget days",
                                                 fontFamily = appFont,
                                                 fontSize = 10.sp,
                                                 fontWeight = FontWeight.Bold,
-                                                color = primaryColor
+                                                color = if (isWeekQuotaCompleted) primaryColor else textColor
+                                            )
+                                        }
+                                    } else if (todayCount > 0) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(if (isBadHabit) Color.Red.copy(alpha = 0.15f) else primaryColor.copy(alpha = 0.2f))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = if (isBadHabit) "Slip" else if (activeTracker.targetCount > 1) "$todayCount/${activeTracker.targetCount}" else if (todayCount > 1) "x$todayCount" else "Done",
+                                                fontFamily = appFont,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isBadHabit) Color(0xFFEF5350) else primaryColor
                                             )
                                         }
                                     }
                                 }
                                 Text(
-                                    text = if (isTodayDone) {
-                                        if (activeTracker.type == "bad") "Slip recorded today" else "Streak safe · Keep going!"
+                                    text = if (isWeeklyQuota) {
+                                        if (isWeekQuotaCompleted) {
+                                            "This Week: $currentWeekCompletedDays / $weeklyTarget days · Target reached! 🎉"
+                                        } else {
+                                            "This Week: $currentWeekCompletedDays / $weeklyTarget days"
+                                        }
+                                    } else if (isBadHabit) {
+                                        if (todayCount > 0) "Slip recorded today · Tomorrow is day one" else "Clean today — stay disciplined!"
+                                    } else if (isTodayDone) {
+                                        "Streak safe · Keep going!"
                                     } else {
-                                        if (activeTracker.type == "bad") "Clean today — stay disciplined!" else if (todayCount > 0) "$todayCount of ${activeTracker.targetCount} logged · Keep going!" else "Not logged yet — tap to check in!"
+                                        if (todayCount > 0) "$todayCount of ${activeTracker.targetCount} logged · Keep going!" else "Not logged yet — tap to check in!"
                                     },
                                     fontFamily = appFont,
                                     fontSize = 11.sp,
@@ -473,21 +569,29 @@ fun HomeScreen(
                         // Quick Action Check-in Button
                         Button(
                             onClick = {
-                                viewModel.quickIncrement(todayDateString, selectedMoodTag)
-                                if (celebrationsEnabled) {
-                                    showConfetti = true
-                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                }
+                                triggerQuickCheckIn(todayDateString, selectedMoodTag)
                             },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isTodayDone) primaryColor.copy(alpha = 0.2f) else primaryColor,
-                                contentColor = if (isTodayDone) primaryColor else (if (primaryColor == Color.White) Color.Black else Color.White)
+                                containerColor = if (isBadHabit) {
+                                    if (todayCount > 0) Color.Red.copy(alpha = 0.15f) else Color.Red.copy(alpha = 0.85f)
+                                } else if (isCardHighlight) {
+                                    primaryColor.copy(alpha = 0.2f)
+                                } else {
+                                    primaryColor
+                                },
+                                contentColor = if (isBadHabit) {
+                                    if (todayCount > 0) Color.Red else Color.White
+                                } else if (isCardHighlight) {
+                                    primaryColor
+                                } else {
+                                    if (primaryColor == Color.White) Color.Black else Color.White
+                                }
                             ),
                             shape = RoundedCornerShape(10.dp),
                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
                         ) {
                             Text(
-                                text = if (isTodayDone) "+1 Log" else if (todayCount > 0 && activeTracker.targetCount > 1) "+1 Log ($todayCount/${activeTracker.targetCount})" else "Check In",
+                                text = buttonText,
                                 fontFamily = appFont,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
@@ -746,15 +850,20 @@ fun HomeScreen(
                                 val dayEntries = completionsByDate[cell.dateString] ?: emptyList()
                                 val totalSum = dayEntries.sumOf { it.count }
                                 val isToday = cell.date == today
+                                val targetCount = activeTracker.targetCount.coerceAtLeast(1)
+                                val isCompleted = totalSum >= targetCount
+                                val isPartial = totalSum in 1 until targetCount
 
                                 val borderWidth = when {
                                     isToday -> 1.5.dp
-                                    totalSum > 0 -> 1.dp
+                                    isCompleted -> 1.dp
+                                    isPartial -> 1.dp
                                     else -> 0.5.dp
                                 }
                                 val cellBorderColor = when {
                                     isToday -> primaryColor.copy(alpha = 0.80f)
-                                    totalSum > 0 -> primaryColor.copy(alpha = 0.55f)
+                                    isCompleted -> primaryColor.copy(alpha = 0.65f)
+                                    isPartial -> primaryColor.copy(alpha = 0.35f)
                                     else -> borderColor
                                 }
 
@@ -763,7 +872,11 @@ fun HomeScreen(
                                         .weight(1f)
                                         .aspectRatio(1.02f)
                                         .shadow(
-                                            elevation = if (totalSum > 0 || isToday) 2.dp else 0.5.dp,
+                                            elevation = when {
+                                                isCompleted || isToday -> 2.dp
+                                                isPartial -> 1.dp
+                                                else -> 0.5.dp
+                                            },
                                             shape = cellShape,
                                             spotColor = primaryColor.copy(alpha = if (ThemeStyles.isLightTheme(selectedTheme)) 0.12f else 0.25f),
                                             ambientColor = primaryColor.copy(alpha = if (ThemeStyles.isLightTheme(selectedTheme)) 0.04f else 0.08f)
@@ -775,19 +888,25 @@ fun HomeScreen(
                                             .clip(cellShape)
                                             .background(cardBgColor)
                                             .then(
-                                                if (checkmarkStyleName == "filled" && totalSum > 0) {
-                                                    val fillAlpha = (0.13f + (totalSum - 1) * 0.04f).coerceAtMost(0.28f)
-                                                    Modifier.background(primaryColor.copy(alpha = fillAlpha))
+                                                if (checkmarkStyleName == "filled") {
+                                                    if (isCompleted) {
+                                                        val fillAlpha = (0.13f + (totalSum - targetCount) * 0.04f).coerceIn(0.13f, 0.28f)
+                                                        Modifier.background(primaryColor.copy(alpha = fillAlpha))
+                                                    } else if (isPartial) {
+                                                        val partialRatio = totalSum.toFloat() / targetCount.toFloat()
+                                                        val fillAlpha = (0.04f + partialRatio * 0.05f)
+                                                        Modifier.background(primaryColor.copy(alpha = fillAlpha))
+                                                    } else Modifier
                                                 } else Modifier
                                             )
                                             .border(width = borderWidth, color = cellBorderColor, shape = cellShape)
                                             .combinedClickable(
-                                                onClick = { viewModel.quickIncrement(cell.dateString) },
+                                                onClick = { triggerQuickCheckIn(cell.dateString, null) },
                                                 onLongClick = { selectedDateForDetails = cell.date }
                                             )
                                     ) {
                                         // 1. Indicator — top right, notification badge style
-                                        if (totalSum > 0) {
+                                        if (isCompleted) {
                                             val dotSize = when {
                                                 totalSum >= 4 -> 10.dp
                                                 totalSum == 3 -> 9.dp
@@ -811,7 +930,7 @@ fun HomeScreen(
                                                 )
                                                 "tick" -> Icon(
                                                     Icons.Default.Check,
-                                                    contentDescription = null,
+                                                    contentDescription = "Completed",
                                                     tint = primaryColor.copy(alpha = dotAlpha),
                                                     modifier = Modifier
                                                         .size(dotSize + 4.dp)
@@ -820,7 +939,7 @@ fun HomeScreen(
                                                 )
                                                 "cross" -> Icon(
                                                     Icons.Default.Close,
-                                                    contentDescription = null,
+                                                    contentDescription = "Logged",
                                                     tint = primaryColor.copy(alpha = dotAlpha),
                                                     modifier = Modifier
                                                         .size(dotSize + 4.dp)
@@ -853,6 +972,68 @@ fun HomeScreen(
                                                         .clip(RoundedCornerShape(2.dp))
                                                         .background(primaryColor.copy(alpha = dotAlpha))
                                                 )
+                                            }
+                                        } else if (isPartial) {
+                                            // Distinct partial progress state (targetCount > 1 and totalSum < targetCount)
+                                            when (checkmarkStyleName) {
+                                                "dot" -> Box(
+                                                    modifier = Modifier
+                                                        .size(7.dp)
+                                                        .align(Alignment.TopEnd)
+                                                        .offset(x = (-4).dp, y = 4.dp)
+                                                        .border(1.2.dp, primaryColor.copy(alpha = 0.50f), CircleShape)
+                                                )
+                                                "tick" -> {
+                                                    // Partial progress: shows count in soft accent rather than completed checkmark
+                                                    Text(
+                                                        text = "$totalSum",
+                                                        color = primaryColor.copy(alpha = 0.75f),
+                                                        fontSize = 8.5.sp,
+                                                        fontFamily = appFont,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        modifier = Modifier
+                                                            .align(Alignment.TopEnd)
+                                                            .offset(x = (-3).dp, y = 3.dp)
+                                                    )
+                                                }
+                                                "cross" -> Icon(
+                                                    Icons.Default.Close,
+                                                    contentDescription = "Partial",
+                                                    tint = primaryColor.copy(alpha = 0.35f),
+                                                    modifier = Modifier
+                                                        .size(9.dp)
+                                                        .align(Alignment.TopEnd)
+                                                        .offset(x = (-3).dp, y = 3.dp)
+                                                )
+                                                "number" -> Text(
+                                                    text = "$totalSum",
+                                                    color = secondaryTextColor,
+                                                    fontSize = 8.5.sp,
+                                                    fontFamily = appFont,
+                                                    fontWeight = FontWeight.Normal,
+                                                    modifier = Modifier
+                                                        .align(Alignment.TopEnd)
+                                                        .offset(x = (-3).dp, y = 3.dp)
+                                                )
+                                                "ring" -> Box(
+                                                    modifier = Modifier
+                                                        .size(7.dp)
+                                                        .align(Alignment.TopEnd)
+                                                        .offset(x = (-4).dp, y = 4.dp)
+                                                        .border(0.9.dp, primaryColor.copy(alpha = 0.40f), CircleShape)
+                                                )
+                                                "bar" -> {
+                                                    val progressFraction = (totalSum.toFloat() / targetCount.toFloat()).coerceIn(0.12f, 0.45f)
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .align(Alignment.BottomCenter)
+                                                            .padding(bottom = 4.dp)
+                                                            .height(2.dp)
+                                                            .fillMaxWidth(0.45f * progressFraction)
+                                                            .clip(RoundedCornerShape(1.dp))
+                                                            .background(primaryColor.copy(alpha = 0.40f))
+                                                    )
+                                                }
                                             }
                                         }
 
@@ -899,12 +1080,31 @@ fun HomeScreen(
             )
         }
 
+        // Floating Snackbar for Quick Actions and Undo
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 76.dp)
+                .testTag("undo_snackbar")
+        ) { snackbarData ->
+            Snackbar(
+                snackbarData = snackbarData,
+                containerColor = if (ThemeStyles.isLightTheme(selectedTheme)) Color(0xFF1E1E1E) else Color(0xFF2C2C2C),
+                contentColor = Color.White,
+                actionColor = primaryColor,
+                shape = RoundedCornerShape(12.dp)
+            )
+        }
+
         // Add Tracker creation Sheet
         if (showAddTrackerDialog) {
             var newTitle by remember { mutableStateOf("") }
             var newIcon by remember { mutableStateOf("🎯") }
             var newAccentColor by remember { mutableStateOf<String?>(null) }
             var newTargetCount by remember { mutableIntStateOf(1) }
+            var newWeeklyTarget by remember { mutableIntStateOf(3) }
+            var newCustomDays by remember { mutableStateOf(setOf("MON", "WED", "FRI")) }
             
             @OptIn(ExperimentalMaterial3Api::class)
             ModalBottomSheet(
@@ -955,7 +1155,7 @@ fun HomeScreen(
                             focusedTextColor = textColor,
                             unfocusedTextColor = textColor
                         ),
-                        placeholder = { Text(fontFamily = appFont, text = "e.g. \uD83C\uDFAF", color = secondaryTextColor.copy(alpha = 0.5f)) },
+                        placeholder = { Text(fontFamily = appFont, text = "e.g. 🎯", color = secondaryTextColor.copy(alpha = 0.5f)) },
                         modifier = Modifier.fillMaxWidth()
                     )
 
@@ -1032,7 +1232,8 @@ fun HomeScreen(
                     val freqOptions = listOf(
                         "daily" to "Daily",
                         "weekdays" to "Weekdays (M-F)",
-                        "3x_week" to "3x / Week"
+                        "custom_days" to "Custom Days",
+                        "weekly_quota" to "Weekly Target"
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (ThemeStyles.isLightTheme(selectedTheme)) borderColor.copy(alpha = 0.2f) else Color(0xFF141414)),
@@ -1052,9 +1253,71 @@ fun HomeScreen(
                                 Text(fontFamily = appFont, 
                                     text = fLabel,
                                     color = if (isSelected) (if (primaryColor == Color.White) Color.Black else Color.White) else secondaryTextColor,
-                                    fontSize = 11.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                    fontSize = 10.5.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    maxLines = 1
                                 )
+                            }
+                        }
+                    }
+
+                    // Frequency Mode Controls
+                    if (newFrequency == "weekly_quota") {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(fontFamily = appFont, text = "Weekly Target Days", color = textColor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                Text(fontFamily = appFont, text = "Complete on $newWeeklyTarget distinct days per week", color = secondaryTextColor, fontSize = 11.sp)
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                IconButton(
+                                    onClick = { if (newWeeklyTarget > 1) newWeeklyTarget-- },
+                                    modifier = Modifier.size(32.dp).clip(CircleShape).background(borderColor.copy(alpha = 0.3f))
+                                ) {
+                                    Text(text = "−", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = textColor)
+                                }
+                                Text(text = "$newWeeklyTarget d/wk", fontFamily = appFont, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = textColor)
+                                IconButton(
+                                    onClick = { if (newWeeklyTarget < 7) newWeeklyTarget++ },
+                                    modifier = Modifier.size(32.dp).clip(CircleShape).background(borderColor.copy(alpha = 0.3f))
+                                ) {
+                                    Text(text = "+", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = textColor)
+                                }
+                            }
+                        }
+                    } else if (newFrequency == "custom_days") {
+                        Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(fontFamily = appFont, text = "Select Active Days", color = textColor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            val dayKeys = listOf("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                dayKeys.forEach { dKey ->
+                                    val isDaySelected = dKey in newCustomDays
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isDaySelected) primaryColor else borderColor.copy(alpha = 0.25f))
+                                            .clickable {
+                                                newCustomDays = if (isDaySelected) {
+                                                    if (newCustomDays.size > 1) newCustomDays - dKey else newCustomDays
+                                                } else {
+                                                    newCustomDays + dKey
+                                                }
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = dKey.take(1),
+                                            fontFamily = appFont,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isDaySelected) (if (primaryColor == Color.White) Color.Black else Color.White) else secondaryTextColor
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -1130,15 +1393,22 @@ fun HomeScreen(
                         Button(
                             onClick = {
                                 if (newTitle.isNotBlank() && newIcon.isNotBlank()) {
+                                    val targetDaysString = when (newFrequency) {
+                                        "weekdays" -> "MON,TUE,WED,THU,FRI"
+                                        "custom_days" -> newCustomDays.joinToString(",")
+                                        else -> "MON,TUE,WED,THU,FRI,SAT,SUN"
+                                    }
+                                    val finalWeeklyTarget = if (newFrequency == "weekly_quota") newWeeklyTarget else 0
                                     viewModel.addTracker(
                                         title = newTitle, 
                                         icon = newIcon, 
                                         accentColor = newAccentColor, 
                                         type = newType,
                                         frequencyType = newFrequency,
-                                        targetDays = "MON,TUE,WED,THU,FRI,SAT,SUN",
+                                        targetDays = targetDaysString,
                                         targetCount = newTargetCount,
-                                        timeOfDay = newTimeOfDay
+                                        timeOfDay = newTimeOfDay,
+                                        weeklyTarget = finalWeeklyTarget
                                     )
                                     showAddTrackerDialog = false
                                 }
@@ -1240,8 +1510,15 @@ fun HomeScreen(
             var editAccentColor by remember(editingConfig) { mutableStateOf(editingConfig.accentColor) }
             var editType by remember(editingConfig) { mutableStateOf(editingConfig.type) }
             var editTimeOfDay by remember(editingConfig) { mutableStateOf(editingConfig.timeOfDay) }
-            var editFrequency by remember(editingConfig) { mutableStateOf(editingConfig.frequencyType) }
+            var editFrequency by remember(editingConfig) { mutableStateOf(if (editingConfig.frequencyType == "3x_week") "weekly_quota" else editingConfig.frequencyType) }
             var editTargetCount by remember(editingConfig) { mutableIntStateOf(editingConfig.targetCount) }
+            var editWeeklyTarget by remember(editingConfig) { 
+                mutableIntStateOf(if (editingConfig.weeklyTarget in 1..7) editingConfig.weeklyTarget else (if (editingConfig.frequencyType == "3x_week") 3 else 3)) 
+            }
+            var editCustomDays by remember(editingConfig) {
+                val parts = editingConfig.targetDays.split(",").map { it.trim().uppercase() }.filter { it.isNotBlank() }.toSet()
+                mutableStateOf(if (parts.isNotEmpty()) parts else setOf("MON", "WED", "FRI"))
+            }
 
             @OptIn(ExperimentalMaterial3Api::class)
             ModalBottomSheet(
@@ -1292,12 +1569,13 @@ fun HomeScreen(
                             focusedTextColor = textColor,
                             unfocusedTextColor = textColor
                         ),
-                        placeholder = { Text(fontFamily = appFont, text = "e.g. \uD83C\uDFAF", color = secondaryTextColor.copy(alpha = 0.5f)) },
+                        placeholder = { Text(fontFamily = appFont, text = "e.g. 🎯", color = secondaryTextColor.copy(alpha = 0.5f)) },
                         modifier = Modifier.fillMaxWidth()
                     )
 
                     // Tracker Type
                     Text(fontFamily = appFont, text = "Tracker Type", color = secondaryTextColor, fontSize = 12.sp, modifier = Modifier.align(Alignment.Start))
+                    var editTypeState by remember(editingConfig) { mutableStateOf(editType) }
                     val trackerTypes = listOf(
                         Triple("good", "Good", "Streak breaks on missed days"),
                         Triple("misc", "Misc", "Counting only, no streaks"),
@@ -1366,7 +1644,8 @@ fun HomeScreen(
                     val freqOptions = listOf(
                         "daily" to "Daily",
                         "weekdays" to "Weekdays (M-F)",
-                        "3x_week" to "3x / Week"
+                        "custom_days" to "Custom Days",
+                        "weekly_quota" to "Weekly Target"
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (ThemeStyles.isLightTheme(selectedTheme)) borderColor.copy(alpha = 0.2f) else Color(0xFF141414)),
@@ -1386,9 +1665,71 @@ fun HomeScreen(
                                 Text(fontFamily = appFont, 
                                     text = fLabel,
                                     color = if (isSelected) (if (primaryColor == Color.White) Color.Black else Color.White) else secondaryTextColor,
-                                    fontSize = 11.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                    fontSize = 10.5.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    maxLines = 1
                                 )
+                            }
+                        }
+                    }
+
+                    // Frequency Mode Controls
+                    if (editFrequency == "weekly_quota") {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(fontFamily = appFont, text = "Weekly Target Days", color = textColor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                Text(fontFamily = appFont, text = "Complete on $editWeeklyTarget distinct days per week", color = secondaryTextColor, fontSize = 11.sp)
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                IconButton(
+                                    onClick = { if (editWeeklyTarget > 1) editWeeklyTarget-- },
+                                    modifier = Modifier.size(32.dp).clip(CircleShape).background(borderColor.copy(alpha = 0.3f))
+                                ) {
+                                    Text(text = "−", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = textColor)
+                                }
+                                Text(text = "$editWeeklyTarget d/wk", fontFamily = appFont, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = textColor)
+                                IconButton(
+                                    onClick = { if (editWeeklyTarget < 7) editWeeklyTarget++ },
+                                    modifier = Modifier.size(32.dp).clip(CircleShape).background(borderColor.copy(alpha = 0.3f))
+                                ) {
+                                    Text(text = "+", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = textColor)
+                                }
+                            }
+                        }
+                    } else if (editFrequency == "custom_days" || editFrequency == "weekly") {
+                        Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(fontFamily = appFont, text = "Select Active Days", color = textColor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            val dayKeys = listOf("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                dayKeys.forEach { dKey ->
+                                    val isDaySelected = dKey in editCustomDays
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isDaySelected) primaryColor else borderColor.copy(alpha = 0.25f))
+                                            .clickable {
+                                                editCustomDays = if (isDaySelected) {
+                                                    if (editCustomDays.size > 1) editCustomDays - dKey else editCustomDays
+                                                } else {
+                                                    editCustomDays + dKey
+                                                }
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = dKey.take(1),
+                                            fontFamily = appFont,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isDaySelected) (if (primaryColor == Color.White) Color.Black else Color.White) else secondaryTextColor
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -1464,6 +1805,12 @@ fun HomeScreen(
                         Button(
                             onClick = {
                                 if (editTitle.isNotBlank() && editIcon.isNotBlank()) {
+                                    val targetDaysString = when (editFrequency) {
+                                        "weekdays" -> "MON,TUE,WED,THU,FRI"
+                                        "custom_days", "weekly" -> editCustomDays.joinToString(",")
+                                        else -> "MON,TUE,WED,THU,FRI,SAT,SUN"
+                                    }
+                                    val finalWeeklyTarget = if (editFrequency == "weekly_quota") editWeeklyTarget else 0
                                     viewModel.updateTracker(
                                         id = editingConfig.id,
                                         title = editTitle,
@@ -1471,9 +1818,10 @@ fun HomeScreen(
                                         accentColor = editAccentColor,
                                         type = editType,
                                         frequencyType = editFrequency,
-                                        targetDays = editingConfig.targetDays,
+                                        targetDays = targetDaysString,
                                         targetCount = editTargetCount,
-                                        timeOfDay = editTimeOfDay
+                                        timeOfDay = editTimeOfDay,
+                                        weeklyTarget = finalWeeklyTarget
                                     )
                                     trackerToEdit = null
                                 }
@@ -1879,7 +2227,7 @@ fun HomeScreen(
                         // Add extra +1 button
                         Button(
                             onClick = {
-                                viewModel.quickIncrement(sDateString)
+                                triggerQuickCheckIn(sDateString, null)
                                 selectedDateForDetails = null
                             },
                             colors = ButtonDefaults.buttonColors(
@@ -1889,7 +2237,7 @@ fun HomeScreen(
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(8.dp)
                         ) {
-                            Text(fontFamily = appFont, text = "+1 Log", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text(fontFamily = appFont, text = if (activeTracker.type == "bad") "Log Slip" else "+1 Log", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }

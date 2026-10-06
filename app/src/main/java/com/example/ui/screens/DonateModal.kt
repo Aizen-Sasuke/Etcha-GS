@@ -63,7 +63,7 @@ fun DonateModal(
     val perks = listOf(
         "👑" to "VIP Themes: 24K Gold, Nebula Opal, Emerald Elite, Rose Diamond & more",
         "🛡️" to "Streak Freeze Vault: 3+ bonus safety freezes & automatic slip forgiveness",
-        "☁️" to "Google Account Cloud Mirror: Real-time background sync & instant restore",
+        "💾" to "Local Snapshots & Backup: One-tap device restore points & JSON export",
         "⭐" to "VIP Profile Badge: Exclusive gleaming supporter emblem in top header",
         "📊" to "Advanced Synergy & AI Insights: Peak hour efficiency & habit correlations",
         "📖" to "Rich Daily Journal: Deep reflection prompts & mood distribution analytics"
@@ -146,7 +146,7 @@ fun DonateModal(
                                     textAlign = TextAlign.Center
                                 )
                                 Text(
-                                    text = "All VIP themes, Google Cloud sync, bonus freeze vault, and exclusive perks are permanently unlocked on your account.",
+                                    text = "All VIP themes, device snapshots & backup, bonus freeze vault, and exclusive perks are permanently unlocked on your account.",
                                     fontFamily = appFont,
                                     fontSize = 12.sp,
                                     color = textColor,

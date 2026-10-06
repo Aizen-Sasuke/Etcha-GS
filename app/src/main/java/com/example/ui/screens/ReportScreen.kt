@@ -219,17 +219,31 @@ fun ReportScreen(
 
     var selectedReportTab by remember { mutableIntStateOf(0) }
 
-    val milestonesList = remember {
-        listOf(
-            HabitMilestone("1_day", "🌱", "First Spark", 1, "Log your first day"),
-            HabitMilestone("3_day", "⚡", "Momentum", 3, "3 days streak"),
-            HabitMilestone("7_day", "🔥", "Week Streak", 7, "7 consecutive days"),
-            HabitMilestone("14_day", "🚀", "Two Weeks", 14, "14 days unbroken"),
-            HabitMilestone("21_day", "🧠", "Habit Builder", 21, "21 days habit loop"),
-            HabitMilestone("30_day", "🏆", "Month Master", 30, "30 days dedication"),
-            HabitMilestone("50_day", "💎", "Unbreakable", 50, "50 days resilience"),
-            HabitMilestone("100_day", "👑", "Centurion", 100, "100 days legendary")
-        )
+    val isWeeklyQuota = activeTracker.frequencyType == "weekly_quota"
+
+    val milestonesList = remember(isWeeklyQuota) {
+        if (isWeeklyQuota) {
+            listOf(
+                HabitMilestone("1_week", "🌱", "First Spark", 1, "Complete 1 full week target"),
+                HabitMilestone("2_week", "⚡", "Momentum", 2, "2 consecutive weeks"),
+                HabitMilestone("4_week", "🔥", "Month Master", 4, "4 consecutive weeks"),
+                HabitMilestone("8_week", "🚀", "Two Months", 8, "8 consecutive weeks"),
+                HabitMilestone("12_week", "🧠", "Quarter Loop", 12, "12 consecutive weeks"),
+                HabitMilestone("26_week", "🏆", "Half Year", 26, "26 weeks dedication"),
+                HabitMilestone("52_week", "👑", "Centurion", 52, "52 weeks legendary")
+            )
+        } else {
+            listOf(
+                HabitMilestone("1_day", "🌱", "First Spark", 1, "Log your first day"),
+                HabitMilestone("3_day", "⚡", "Momentum", 3, "3 days streak"),
+                HabitMilestone("7_day", "🔥", "Week Streak", 7, "7 consecutive days"),
+                HabitMilestone("14_day", "🚀", "Two Weeks", 14, "14 days unbroken"),
+                HabitMilestone("21_day", "🧠", "Habit Builder", 21, "21 days habit loop"),
+                HabitMilestone("30_day", "🏆", "Month Master", 30, "30 days dedication"),
+                HabitMilestone("50_day", "💎", "Unbreakable", 50, "50 days resilience"),
+                HabitMilestone("100_day", "👑", "Centurion", 100, "100 days legendary")
+            )
+        }
     }
 
     val effectiveStreak = maxOf(stats.currentStreak, stats.bestStreak)
@@ -363,10 +377,14 @@ fun ReportScreen(
                             modifier = Modifier.width(165.dp)
                         )
 
+                        val streakUnit = if (isWeeklyQuota) {
+                            if (stats.bestStreak == 1) "week" else "weeks"
+                        } else "days"
+
                         CompactStatsCard(
                             appFont = appFont,
                             title = streakLabel,
-                            value = "${stats.bestStreak} days",
+                            value = "${stats.bestStreak} $streakUnit",
                             subtitle = streakSubtitle,
                             cardBgColor = cardBgColor,
                             borderColor = borderColor,
@@ -532,7 +550,7 @@ fun ReportScreen(
                                                 trackColor = if (ThemeStyles.isLightTheme(selectedTheme)) borderColor.copy(alpha = 0.4f) else Color(0xFF333333)
                                             )
                                             Text(
-                                                text = "$effectiveStreak / ${milestone.targetDays} d",
+                                                text = if (isWeeklyQuota) "$effectiveStreak / ${milestone.targetDays} wks" else "$effectiveStreak / ${milestone.targetDays} d",
                                                 fontFamily = appFont,
                                                 fontSize = 10.sp,
                                                 color = secondaryTextColor

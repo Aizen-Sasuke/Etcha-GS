@@ -92,10 +92,7 @@ fun PreferencesScreen(
     val dayRolloverHour by viewModel.dayRolloverHour.collectAsState()
     val celebrationsEnabled by viewModel.celebrationsEnabled.collectAsState()
     val isSupporter by viewModel.isSupporter.collectAsState()
-    val currentEntries by viewModel.getEntriesForExport().collectAsState(initial = emptyList())
     
-    var showExportDialog by remember { mutableStateOf(false) }
-    var showImportDialog by remember { mutableStateOf(false) }
     var showTimeDialog by remember { mutableStateOf(false) }
     var showThemePicker by remember { mutableStateOf(false) }
     var showFontPicker by remember { mutableStateOf(false) }
@@ -535,7 +532,7 @@ fun PreferencesScreen(
                 }
             }
 
-            // Snapshots & Data Backup Card
+            // Local Snapshots & Backup Card
             Card(
                 colors = CardDefaults.cardColors(containerColor = cardBgColor),
                 border = BorderStroke(0.5.dp, borderColor),
@@ -562,14 +559,14 @@ fun PreferencesScreen(
                             }
                             Column {
                                 Text(
-                                    text = "Snapshots & Data Backup",
+                                    text = "Local Snapshots & Backup",
                                     color = textColor,
                                     fontSize = 15.sp,
                                     fontFamily = appFont,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    text = if (lastBackupTime != null) "Last snapshot: $lastBackupTime" else "Offline restore points and portable JSON backups",
+                                    text = if (lastBackupTime != null) "Last snapshot: $lastBackupTime" else "Offline restore points & portable JSON export/import",
                                     color = secondaryTextColor,
                                     fontFamily = appFont,
                                     fontSize = 11.sp
@@ -590,61 +587,6 @@ fun PreferencesScreen(
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
                         )
-                    }
-                }
-            }
-
-            Card(
-                colors = CardDefaults.cardColors(containerColor = cardBgColor),
-                border = BorderStroke(0.5.dp, borderColor),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Data Management (Offline Backup)",
-                        color = textColor,
-                        fontSize = 15.sp,
-                        fontFamily = appFont,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "All data is stored locally in an offline SQLite Database. Export a digital copy or restore pre-existing logs.",
-                        color = secondaryTextColor,
-                        fontFamily = appFont,
-                        fontSize = 11.sp,
-                        modifier = Modifier.padding(vertical = 6.dp)
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = { showExportDialog = true },
-                            colors = ButtonDefaults.buttonColors(containerColor = neutralBg, contentColor = textColor),
-                            border = BorderStroke(0.5.dp, neutralStroke),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(text = "Export Backup", fontSize = 12.sp, fontFamily = appFont)
-                        }
-
-                        Button(
-                            onClick = { showImportDialog = true },
-                            colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = innerDarkText),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(text = "Restore Backup", fontSize = 12.sp, fontFamily = appFont, fontWeight = FontWeight.Bold)
-                        }
                     }
                 }
             }
@@ -854,194 +796,6 @@ fun PreferencesScreen(
             }
         }
 
-        if (showExportDialog) {
-            val jsonBackupText = remember { viewModel.exportBackupJson(currentEntries) }
-            Dialog(onDismissRequest = { showExportDialog = false }) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = cardBgColor),
-                    border = BorderStroke(1.dp, borderColor),
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth().padding(16.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = "Export JSON Backup",
-                            fontFamily = appFont,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = textColor
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "Share or save this JSON file containing your habit history.",
-                            fontSize = 11.sp,
-                            color = secondaryTextColor,
-                            fontFamily = appFont,
-                            textAlign = TextAlign.Center,
-                            lineHeight = 15.sp
-                        )
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = neutralBg),
-                            border = BorderStroke(0.5.dp, neutralStroke),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(160.dp)
-                        ) {
-                            Box(modifier = Modifier.padding(8.dp).verticalScroll(rememberScrollState())) {
-                                Text(
-                                    text = jsonBackupText,
-                                    color = textColor.copy(alpha = 0.8f),
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 10.sp
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            OutlinedButton(
-                                onClick = { showExportDialog = false },
-                                border = BorderStroke(0.5.dp, secondaryTextColor),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = secondaryTextColor),
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Text(text = "Close", fontSize = 12.sp, fontFamily = appFont)
-                            }
-
-                            Button(
-                                onClick = {
-                                    val file = java.io.File(context.cacheDir, "habit_export.json")
-                                    file.writeText(jsonBackupText)
-                                    val uri = androidx.core.content.FileProvider.getUriForFile(
-                                        context, 
-                                        "${context.packageName}.fileprovider", 
-                                        file
-                                    )
-                                    val intent = ShareCompat.IntentBuilder(context)
-                                        .setType("application/json")
-                                        .setStream(uri)
-                                        .setChooserTitle("Share Habit Backup")
-                                        .createChooserIntent()
-                                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                    context.startActivity(intent)
-                                    showExportDialog = false
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = innerDarkText),
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(text = "Share File", fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = appFont)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if (showImportDialog) {
-            var pasteInput by remember { mutableStateOf("") }
-            Dialog(onDismissRequest = { showImportDialog = false }) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = cardBgColor),
-                    border = BorderStroke(1.dp, borderColor),
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth().padding(16.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = "Import JSON Backup",
-                            fontFamily = appFont,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = textColor
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "Paste a previously generated backup string below to reconstruct your logs. Warning: This will combine data recursively.",
-                            fontSize = 11.sp,
-                            fontFamily = appFont,
-                            color = secondaryTextColor,
-                            textAlign = TextAlign.Center,
-                            lineHeight = 15.sp
-                        )
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        TextField(
-                            value = pasteInput,
-                            onValueChange = { pasteInput = it },
-                            placeholder = { Text("Paste JSON backup string here...", fontSize = 12.sp, color = secondaryTextColor, fontFamily = appFont) },
-                            colors = TextFieldDefaults.colors(
-                                focusedContainerColor = neutralBg,
-                                unfocusedContainerColor = neutralBg,
-                                cursorColor = textColor,
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent
-                             ),
-                            textStyle = TextStyle(color = textColor, fontSize = 11.sp, fontFamily = FontFamily.Monospace),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(120.dp)
-                        )
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            OutlinedButton(
-                                onClick = { showImportDialog = false },
-                                border = BorderStroke(0.5.dp, secondaryTextColor),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = secondaryTextColor),
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Text(text = "Cancel", fontSize = 12.sp, fontFamily = appFont)
-                            }
-
-                            Button(
-                                onClick = {
-                                    if (pasteInput.trim().isEmpty()) {
-                                        Toast.makeText(context, "Input string is empty!", Toast.LENGTH_SHORT).show()
-                                        return@Button
-                                    }
-                                    val success = viewModel.importBackupJson(pasteInput)
-                                    if (success) {
-                                        Toast.makeText(context, "Data successfully restored from backup!", Toast.LENGTH_SHORT).show()
-                                        showImportDialog = false
-                                    } else {
-                                        Toast.makeText(context, "Failed to parse backup. Check formatting!", Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = innerDarkText),
-                                modifier = Modifier.weight(1.5f),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(text = "Validate & Restore", fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = appFont)
-                            }
-                        }
-                    }
-                }
-            }
-        }
         if (showThemePicker) {
             ThemePickerModal(
                 viewModel = viewModel,

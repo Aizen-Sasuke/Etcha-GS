@@ -115,6 +115,22 @@ class HabitAppWidgetProvider : AppWidgetProvider() {
                 val targetCount = activeTracker?.targetCount ?: 1
                 val isDoneToday = totalCount >= targetCount
 
+                val isWeeklyQuota = activeTracker != null && activeTracker.frequencyType == "weekly_quota"
+                val weeklyTarget = (activeTracker?.weeklyTarget ?: 0).coerceIn(1, 7)
+                val weeklyCompletedDays = if (isWeeklyQuota && activeTracker != null) {
+                    val monday = LocalDate.now().with(java.time.DayOfWeek.MONDAY)
+                    var count = 0
+                    for (d in 0..6) {
+                        val dStr = monday.plusDays(d.toLong()).toString()
+                        val dayEntries = db.habitDao().getEntriesForTrackerAndDate(activeTracker.id, dStr)
+                        if (dayEntries.sumOf { it.count } >= targetCount) {
+                            count++
+                        }
+                    }
+                    count
+                } else 0
+                val isWeeklyQuotaCompleted = isWeeklyQuota && weeklyCompletedDays >= weeklyTarget
+
                 for (widgetId in appWidgetIds) {
                     val views = RemoteViews(context.packageName, R.layout.widget_habit_today).apply {
                         if (activeTracker != null) {
@@ -125,7 +141,18 @@ class HabitAppWidgetProvider : AppWidgetProvider() {
                             setTextViewText(R.id.widget_habit_title, "Daily Habit")
                         }
 
-                        if (isDoneToday) {
+                        if (isWeeklyQuota) {
+                            if (isWeeklyQuotaCompleted) {
+                                setTextViewText(R.id.widget_habit_status, "$weeklyCompletedDays / $weeklyTarget days this week ✓")
+                                setTextViewText(R.id.widget_btn_action, "✓ Week Goal Met · +1 Check In")
+                                setOnClickPendingIntent(R.id.widget_btn_action, checkInPendingIntent)
+                            } else {
+                                setTextViewText(R.id.widget_habit_status, "$weeklyCompletedDays / $weeklyTarget days this week")
+                                val btnText = if (isDoneToday) "✓ Done Today · +1 (${totalCount})" else "⚡ Tap to Check In"
+                                setTextViewText(R.id.widget_btn_action, btnText)
+                                setOnClickPendingIntent(R.id.widget_btn_action, checkInPendingIntent)
+                            }
+                        } else if (isDoneToday) {
                             val statusText = if (targetCount > 1) "Completed today ($totalCount/$targetCount) ✓" else "Completed today ✓"
                             setTextViewText(R.id.widget_habit_status, statusText)
                             setTextViewText(R.id.widget_btn_action, "✓ Done Today · Open App")

@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -114,7 +115,7 @@ fun CloudBackupModal(
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close", tint = textColor)
                         }
                         Text(
-                            text = "Snapshots & Backup",
+                            text = "Local Snapshots & Backup",
                             fontFamily = appFont,
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
@@ -285,7 +286,7 @@ fun CloudBackupModal(
                                 ) {
                                     Box(modifier = Modifier.padding(20.dp).fillMaxWidth(), contentAlignment = Alignment.Center) {
                                         Text(
-                                            text = "No cloud snapshots found yet.\nTap 'Back Up Now' to create your first cloud restore point.",
+                                            text = "No saved restore points found yet.\nTap 'Create Device Restore Point' to create a local snapshot.",
                                             fontFamily = appFont,
                                             fontSize = 12.sp,
                                             color = secondaryTextColor,
@@ -393,11 +394,11 @@ fun CloudBackupModal(
                         onDismissRequest = { snapshotToRestore = null },
                         containerColor = cardBgColor,
                         title = {
-                            Text("Restore from Cloud Snapshot?", fontFamily = appFont, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = textColor)
+                            Text("Restore from Local Snapshot?", fontFamily = appFont, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = textColor)
                         },
                         text = {
                             Text(
-                                "This will restore your habits (${snap.totalTrackers} habits, ${snap.totalEntries} entries) to the state saved on ${snap.displayDate}.\n\nExisting local data will be merged and updated.",
+                                "This will restore your habits (${snap.totalTrackers} habits, ${snap.totalEntries} entries) to the state saved on ${snap.displayDate}.\n\nExisting local data will be restored.",
                                 fontFamily = appFont,
                                 fontSize = 13.sp,
                                 color = textColor
@@ -445,15 +446,44 @@ fun CloudBackupModal(
                             }
                         },
                         confirmButton = {
-                            Button(
-                                onClick = {
-                                    clipboardManager.setText(AnnotatedString(rawExportJson))
-                                    showRawJsonDialog = false
-                                    statusMessage = "Backup JSON copied to clipboard!"
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = if (ThemeStyles.isThemeDark(selectedTheme)) Color.Black else Color.White)
-                            ) {
-                                Text("Copy to Clipboard", fontFamily = appFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            val context = LocalContext.current
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(
+                                    onClick = {
+                                        try {
+                                            val file = java.io.File(context.cacheDir, "habit_export.json")
+                                            file.writeText(rawExportJson)
+                                            val uri = androidx.core.content.FileProvider.getUriForFile(
+                                                context,
+                                                "${context.packageName}.fileprovider",
+                                                file
+                                            )
+                                            val intent = androidx.core.app.ShareCompat.IntentBuilder(context)
+                                                .setType("application/json")
+                                                .setStream(uri)
+                                                .setChooserTitle("Share Habit Backup")
+                                                .createChooserIntent()
+                                                .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                            context.startActivity(intent)
+                                            showRawJsonDialog = false
+                                        } catch (e: Exception) {
+                                            statusMessage = "Share failed: ${e.message}"
+                                        }
+                                    },
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, borderColor)
+                                ) {
+                                    Text("Share File", fontFamily = appFont, fontSize = 12.sp, color = textColor)
+                                }
+                                Button(
+                                    onClick = {
+                                        clipboardManager.setText(AnnotatedString(rawExportJson))
+                                        showRawJsonDialog = false
+                                        statusMessage = "Backup JSON copied to clipboard!"
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = if (ThemeStyles.isThemeDark(selectedTheme)) Color.Black else Color.White)
+                                ) {
+                                    Text("Copy", fontFamily = appFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
                             }
                         },
                         dismissButton = {

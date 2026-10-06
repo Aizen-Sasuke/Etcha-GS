@@ -14,5 +14,6 @@ data class Tracker(
     val frequencyType: String = "daily", // "daily", "weekdays", "custom_days", "times_per_week"
     val targetDays: String = "MON,TUE,WED,THU,FRI,SAT,SUN",
     val targetCount: Int = 1,
-    val timeOfDay: String = "anytime" // "anytime", "morning", "afternoon", "evening"
+    val timeOfDay: String = "anytime", // "anytime", "morning", "afternoon", "evening"
+    val weeklyTarget: Int = 0
 )

@@ -288,7 +288,7 @@ fun ThemePickerModal(
                                     }
                                 }
                                 Text(
-                                    text = "Support development with a small donation to unlock all VIP themes, Google Cloud auto-backup, bonus streak freezes, and supporter badge!",
+                                    text = "Support development with a small donation to unlock all VIP themes, bonus streak freezes, and supporter badge!",
                                     fontFamily = appFont,
                                     fontSize = 12.sp,
                                     color = secondaryTextColor

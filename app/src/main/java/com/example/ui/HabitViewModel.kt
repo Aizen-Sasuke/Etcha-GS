@@ -60,7 +60,8 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
                 frequencyType = it.frequencyType,
                 targetDays = it.targetDays,
                 targetCount = it.targetCount,
-                timeOfDay = it.timeOfDay
+                timeOfDay = it.timeOfDay,
+                weeklyTarget = it.weeklyTarget
             ) 
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -70,8 +71,8 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "sobriety")
 
     val activeTracker: StateFlow<TrackerConfig> = combine(trackers, selectedTrackerId) { list, activeId ->
-        list.find { it.id == activeId } ?: list.firstOrNull() ?: TrackerConfig("sobriety", "Sobriety", "🚭", null, "good", "daily", "MON,TUE,WED,THU,FRI,SAT,SUN", 1, "anytime")
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TrackerConfig("sobriety", "Sobriety", "🚭", null, "good", "daily", "MON,TUE,WED,THU,FRI,SAT,SUN", 1, "anytime"))
+        list.find { it.id == activeId } ?: list.firstOrNull() ?: TrackerConfig("sobriety", "Sobriety", "🚭", null, "good", "daily", "MON,TUE,WED,THU,FRI,SAT,SUN", 1, "anytime", 0)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TrackerConfig("sobriety", "Sobriety", "🚭", null, "good", "daily", "MON,TUE,WED,THU,FRI,SAT,SUN", 1, "anytime", 0))
 
     val streakFreezeDate: StateFlow<String?> = preferences.map { prefs ->
         val v = prefs["streak_freeze_date"]
@@ -324,7 +325,8 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
         frequencyType: String = "daily",
         targetDays: String = "MON,TUE,WED,THU,FRI,SAT,SUN",
         targetCount: Int = 1,
-        timeOfDay: String = "anytime"
+        timeOfDay: String = "anytime",
+        weeklyTarget: Int = 0
     ) {
         viewModelScope.launch {
             val newId = "tracker_" + System.currentTimeMillis()
@@ -338,7 +340,8 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
                 frequencyType = frequencyType,
                 targetDays = targetDays,
                 targetCount = targetCount,
-                timeOfDay = timeOfDay
+                timeOfDay = timeOfDay,
+                weeklyTarget = weeklyTarget
             )
             repository.insertTracker(newTracker)
             repository.setPreference("selected_tracker_id", newId)
@@ -358,7 +361,8 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
         frequencyType: String = "daily",
         targetDays: String = "MON,TUE,WED,THU,FRI,SAT,SUN",
         targetCount: Int = 1,
-        timeOfDay: String = "anytime"
+        timeOfDay: String = "anytime",
+        weeklyTarget: Int = 0
     ) {
         viewModelScope.launch {
             val existing = trackersRaw.value.find { it.id == id }
@@ -372,7 +376,8 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
                         frequencyType = frequencyType,
                         targetDays = targetDays,
                         targetCount = targetCount,
-                        timeOfDay = timeOfDay
+                        timeOfDay = timeOfDay,
+                        weeklyTarget = weeklyTarget
                     )
                 )
                 updateWidget()
@@ -428,19 +433,38 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    fun quickIncrement(dateString: String, moodTag: String? = null) {
+    private val _lastQuickCheckIn = MutableStateFlow<QuickCheckInRecord?>(null)
+    val lastQuickCheckIn: StateFlow<QuickCheckInRecord?> = _lastQuickCheckIn.asStateFlow()
+
+    fun quickIncrement(
+        dateString: String, 
+        moodTag: String? = null,
+        onLogged: ((QuickCheckInRecord) -> Unit)? = null
+    ) {
         viewModelScope.launch {
             val currentId = selectedTrackerId.value
-            val existing = repository.getEntriesForDate(dateString).filter { it.trackerId == currentId }
+            val existing = repository.getEntriesForTrackerAndDate(currentId, dateString)
             val formattedMood = moodTag?.let { "[MOOD:$it]" }
+            val token = System.nanoTime()
+            val record: QuickCheckInRecord
+
             if (existing.isEmpty()) {
-                repository.insertEntry(
-                    HabitEntry(
-                        dateString = dateString, 
-                        count = 1, 
-                        trackerId = currentId,
-                        notes = formattedMood
-                    )
+                val newEntry = HabitEntry(
+                    dateString = dateString, 
+                    count = 1, 
+                    trackerId = currentId,
+                    notes = formattedMood
+                )
+                repository.insertEntry(newEntry)
+                val inserted = repository.getEntriesForTrackerAndDate(currentId, dateString).lastOrNull()
+                record = QuickCheckInRecord(
+                    token = token,
+                    trackerId = currentId,
+                    dateString = dateString,
+                    previousCount = 0,
+                    newCount = 1,
+                    previousNotes = null,
+                    entryId = inserted?.id
                 )
             } else {
                 // If entries exist, increment count of last entry and attach/update mood
@@ -451,10 +475,66 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
                 } else {
                     last.notes
                 }
-                repository.insertEntry(last.copy(count = last.count + 1, notes = updatedNotes))
+                val newCount = last.count + 1
+                repository.insertEntry(last.copy(count = newCount, notes = updatedNotes))
+                record = QuickCheckInRecord(
+                    token = token,
+                    trackerId = currentId,
+                    dateString = dateString,
+                    previousCount = last.count,
+                    newCount = newCount,
+                    previousNotes = last.notes,
+                    entryId = last.id
+                )
+            }
+            _lastQuickCheckIn.value = record
+            updateWidget()
+            onLogged?.invoke(record)
+        }
+    }
+
+    fun undoQuickCheckIn(token: Long? = null, onComplete: ((Boolean) -> Unit)? = null) {
+        val record = _lastQuickCheckIn.value ?: run {
+            onComplete?.invoke(false)
+            return
+        }
+        if (token != null && record.token != token) {
+            onComplete?.invoke(false)
+            return
+        }
+        _lastQuickCheckIn.value = null
+        viewModelScope.launch {
+            if (record.previousCount == 0) {
+                // Brand new entry created by this check-in: delete it
+                if (record.entryId != null && record.entryId > 0) {
+                    repository.deleteEntryById(record.entryId)
+                } else {
+                    repository.deleteEntriesForTrackerAndDate(record.trackerId, record.dateString)
+                }
+            } else {
+                // Incremented existing entry: revert count and notes
+                val existing = repository.getEntriesForTrackerAndDate(record.trackerId, record.dateString)
+                val target = if (record.entryId != null) {
+                    existing.find { it.id == record.entryId } ?: existing.lastOrNull()
+                } else {
+                    existing.lastOrNull()
+                }
+                if (target != null) {
+                    repository.insertEntry(
+                        target.copy(
+                            count = record.previousCount,
+                            notes = record.previousNotes
+                        )
+                    )
+                }
             }
             updateWidget()
+            onComplete?.invoke(true)
         }
+    }
+
+    fun clearUndoRecord() {
+        _lastQuickCheckIn.value = null
     }
 
     fun updateWidget() {
@@ -469,18 +549,21 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun deleteEntry(entry: HabitEntry) {
+        clearUndoRecord()
         viewModelScope.launch {
             repository.deleteEntry(entry)
         }
     }
 
     fun deleteEntryById(id: Int) {
+        clearUndoRecord()
         viewModelScope.launch {
             repository.deleteEntryById(id)
         }
     }
 
     fun clearEntriesForDate(dateString: String) {
+        clearUndoRecord()
         viewModelScope.launch {
             val currentId = selectedTrackerId.value
             repository.deleteEntriesForTrackerAndDate(currentId, dateString)
@@ -553,7 +636,7 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
     init {
         viewModelScope.launch {
             if (repository.getAllTrackersList().isEmpty()) {
-                repository.insertTracker(Tracker("sobriety", "Sobriety", "💪", 0, null, "good"))
+                repository.insertTracker(Tracker("sobriety", "Sobriety", "💪", 0, null, "good", "daily", "MON,TUE,WED,THU,FRI,SAT,SUN", 1, "anytime", 0))
             }
         }
         viewModelScope.launch {
@@ -626,6 +709,52 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
         }.sorted()
 
         if (sortedDates.isEmpty()) return Pair(0, "Starting 🌱")
+
+        if (tracker.frequencyType == "weekly_quota") {
+            val weeklyTarget = tracker.weeklyTarget.coerceIn(1, 7)
+            val firstDate = sortedDates.first()
+            val startMonday = firstDate.with(java.time.DayOfWeek.MONDAY)
+            val currentMonday = today.with(java.time.DayOfWeek.MONDAY)
+
+            var strength = 0.0
+            val alpha = 0.15
+            val beta = 0.12
+
+            var weekMon = startMonday
+            while (!weekMon.isAfter(currentMonday)) {
+                val weekSun = weekMon.plusDays(6)
+                var distinctCompletedDays = 0
+                for (d in 0..6) {
+                    val day = weekMon.plusDays(d.toLong())
+                    if (day in completionDates) {
+                        distinctCompletedDays++
+                    }
+                }
+
+                val isSuccessfulWeek = distinctCompletedDays >= weeklyTarget
+                val isCurrentWeek = weekMon == currentMonday
+
+                if (isSuccessfulWeek) {
+                    strength += alpha * (1.0 - strength)
+                } else {
+                    if (!isCurrentWeek) {
+                        strength *= (1.0 - beta)
+                    }
+                }
+
+                weekMon = weekMon.plusWeeks(1)
+            }
+
+            val score = (strength * 100.0).toInt().coerceIn(0, 100)
+            val status = when {
+                score >= 85 -> "Ironclad 💎"
+                score >= 65 -> "Established 🏆"
+                score >= 45 -> "Building 🚀"
+                score >= 20 -> "Developing ⚡"
+                else -> "Starting 🌱"
+            }
+            return Pair(score, status)
+        }
 
         val startDate = sortedDates.first().coerceAtLeast(today.minusDays(180))
         val allowedDaysSet = getScheduledDaysOfWeek(tracker)
@@ -831,6 +960,24 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
             )
         }
 
+        if (tracker.frequencyType == "weekly_quota") {
+            val streakRes = calculateWeeklyQuotaStreaks(list, today, tracker)
+            return HabitStats(
+                totalCount = totalSum,
+                thisYearCount = thisYearSum,
+                thisMonthCount = thisMonthSum,
+                lastMonthCount = lastMonthSum,
+                percentageChange = percentageChange,
+                percentageText = percentageText,
+                percentageIsDecrease = percentageIsDecrease,
+                currentStreak = streakRes.currentStreak,
+                bestStreak = streakRes.bestStreak,
+                bestStreakTimeline = formatStreakTimeline(streakRes.bestStreakStart, streakRes.bestStreakEnd),
+                habitStrengthScore = strengthScore,
+                habitStrengthStatus = strengthStatus
+            )
+        }
+
         // Streaks calculation based on dates with entries meeting target count
         val frozenDates = freezeHist.split(",").filter { it.isNotBlank() }.toSet()
         val streakRes = calculateStreaks(list, frozenDates, freezeActive, today, tracker)
@@ -849,6 +996,104 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
             habitStrengthScore = strengthScore,
             habitStrengthStatus = strengthStatus
         )
+    }
+
+    private fun calculateWeeklyQuotaStreaks(
+        list: List<HabitEntry>,
+        today: LocalDate,
+        tracker: TrackerConfig
+    ): StreakResult {
+        val targetCount = tracker.targetCount.coerceAtLeast(1)
+        val weeklyTarget = tracker.weeklyTarget.coerceIn(1, 7)
+        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+
+        val completedDates = list
+            .groupBy { it.dateString }
+            .filter { (_, entries) -> entries.sumOf { it.count } >= targetCount }
+            .keys
+            .mapNotNull {
+                try { LocalDate.parse(it, formatter) } catch (e: Exception) { null }
+            }
+            .toSet()
+
+        if (completedDates.isEmpty()) return StreakResult(0, 0, null, null)
+
+        val firstCompletedDate = completedDates.minOrNull()!!
+        val startMonday = firstCompletedDate.with(java.time.DayOfWeek.MONDAY)
+        val currentMonday = today.with(java.time.DayOfWeek.MONDAY)
+
+        val completedWeeks = mutableSetOf<LocalDate>()
+        var weekCursor = startMonday
+        while (!weekCursor.isAfter(currentMonday)) {
+            var distinctCompletedDays = 0
+            for (d in 0..6) {
+                val day = weekCursor.plusDays(d.toLong())
+                if (day in completedDates) {
+                    distinctCompletedDays++
+                }
+            }
+            if (distinctCompletedDays >= weeklyTarget) {
+                completedWeeks.add(weekCursor)
+            }
+            weekCursor = weekCursor.plusWeeks(1)
+        }
+
+        // 1. Current Streak calculation
+        var currentStreak = 0
+        val isCurrentWeekCompleted = currentMonday in completedWeeks
+
+        var checkWeek = if (isCurrentWeekCompleted) {
+            currentStreak++
+            currentMonday.minusWeeks(1)
+        } else {
+            // Current week in progress; walk backward from previous week without breaking
+            currentMonday.minusWeeks(1)
+        }
+
+        while (!checkWeek.isBefore(startMonday)) {
+            if (checkWeek in completedWeeks) {
+                currentStreak++
+                checkWeek = checkWeek.minusWeeks(1)
+            } else {
+                break
+            }
+        }
+
+        // 2. Best Streak calculation
+        var bestStreak = 0
+        var bestStart: LocalDate? = null
+        var bestEnd: LocalDate? = null
+
+        var tempStreak = 0
+        var tempStart: LocalDate? = null
+        var tempEnd: LocalDate? = null
+
+        var iterWeek = startMonday
+        while (!iterWeek.isAfter(currentMonday)) {
+            if (iterWeek in completedWeeks) {
+                if (tempStreak == 0) {
+                    tempStart = iterWeek
+                }
+                tempStreak++
+                tempEnd = iterWeek.plusDays(6)
+                if (tempStreak > bestStreak) {
+                    bestStreak = tempStreak
+                    bestStart = tempStart
+                    bestEnd = tempEnd
+                }
+            } else {
+                tempStreak = 0
+                tempStart = null
+                tempEnd = null
+            }
+            iterWeek = iterWeek.plusWeeks(1)
+        }
+
+        if (bestStreak < currentStreak) {
+            bestStreak = currentStreak
+        }
+
+        return StreakResult(currentStreak, bestStreak, bestStart, bestEnd)
     }
 
     private fun calculateStreaks(
@@ -1068,6 +1313,7 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
                     tobj.put("targetCount", t.targetCount)
                     tobj.put("timeOfDay", t.timeOfDay)
                     tobj.put("sortOrder", t.sortOrder)
+                    tobj.put("weeklyTarget", t.weeklyTarget)
                     trackersArr.put(tobj)
                 }
                 root.put("trackers", trackersArr)
@@ -1129,7 +1375,7 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
 
                 repository.setPreference("cloud_backup_history", historyArr.toString())
                 repository.setPreference("last_cloud_backup_time", displayDate)
-                onComplete(true, "Cloud backup completed successfully ($displayDate)")
+                onComplete(true, "Device snapshot created successfully ($displayDate)")
             } catch (e: Exception) {
                 onComplete(false, "Backup failed: ${e.localizedMessage ?: "Unknown error"}")
             }
@@ -1162,7 +1408,8 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
                                 targetDays = obj.optString("targetDays", "MON,TUE,WED,THU,FRI,SAT,SUN"),
                                 targetCount = obj.optInt("targetCount", 1),
                                 timeOfDay = obj.optString("timeOfDay", "anytime"),
-                                sortOrder = obj.optInt("sortOrder", i)
+                                sortOrder = obj.optInt("sortOrder", i),
+                                weeklyTarget = obj.optInt("weeklyTarget", 0)
                             )
                         )
                     }
@@ -1295,5 +1542,16 @@ data class TrackerConfig(
     val frequencyType: String = "daily",
     val targetDays: String = "MON,TUE,WED,THU,FRI,SAT,SUN",
     val targetCount: Int = 1,
-    val timeOfDay: String = "anytime"
+    val timeOfDay: String = "anytime",
+    val weeklyTarget: Int = 0
+)
+
+data class QuickCheckInRecord(
+    val token: Long = System.nanoTime(),
+    val trackerId: String,
+    val dateString: String,
+    val previousCount: Int,
+    val newCount: Int,
+    val previousNotes: String?,
+    val entryId: Int?
 )
