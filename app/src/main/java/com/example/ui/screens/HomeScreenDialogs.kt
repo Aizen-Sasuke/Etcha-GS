@@ -387,6 +387,7 @@ fun ManageTrackerSheet(
     tracker: TrackerConfig?,
     onDismiss: () -> Unit,
     onEdit: (TrackerConfig) -> Unit,
+    onArchive: (TrackerConfig) -> Unit,
     onDelete: (String) -> Unit,
     canDelete: Boolean,
     appFont: FontFamily,
@@ -428,6 +429,23 @@ fun ManageTrackerSheet(
                     Text(fontFamily = appFont, text = "Edit Settings (Type, Color, Info)", color = if (primaryColor == Color.White) Color.Black else Color.White, fontWeight = FontWeight.Bold)
                 }
             }
+
+            // Primary Safe Retirement: Archive Habit
+            Button(
+                onClick = { onArchive(tracker) },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = primaryColor.copy(alpha = 0.16f),
+                    contentColor = if (primaryColor == Color.White) textColor else primaryColor
+                ),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.4f))
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("📦", fontSize = 16.sp)
+                    Text(fontFamily = appFont, text = "Archive habit", color = if (primaryColor == Color.White) textColor else primaryColor, fontWeight = FontWeight.Bold)
+                }
+            }
             
             Button(
                 onClick = {
@@ -437,7 +455,7 @@ fun ManageTrackerSheet(
                 },
                 enabled = canDelete,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.Red.copy(alpha = 0.15f),
+                    containerColor = Color.Red.copy(alpha = 0.12f),
                     contentColor = Color.Red
                 ),
                 modifier = Modifier.fillMaxWidth(),
@@ -448,7 +466,7 @@ fun ManageTrackerSheet(
                     Icon(Icons.Default.Delete, contentDescription = null, tint = if (canDelete) Color.Red else secondaryTextColor.copy(alpha = 0.5f))
                     Text(
                         fontFamily = appFont, 
-                        text = if (canDelete) "Delete Tracker" else "Delete Tracker (Must have at least one)", 
+                        text = if (canDelete) "Delete Permanently" else "Delete Permanently (Must have at least one)", 
                         color = if (canDelete) Color.Red else secondaryTextColor.copy(alpha = 0.5f), 
                         fontWeight = FontWeight.Bold
                     )
@@ -813,6 +831,62 @@ fun EditTrackerSheet(
 }
 
 @Composable
+fun ArchiveTrackerDialog(
+    tracker: TrackerConfig?,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+    appFont: FontFamily,
+    primaryColor: Color,
+    textColor: Color,
+    secondaryTextColor: Color,
+    cardBgColor: Color,
+    borderColor: Color
+) {
+    if (tracker == null) return
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = cardBgColor,
+        titleContentColor = textColor,
+        textContentColor = secondaryTextColor,
+        title = {
+            Text(fontFamily = appFont, text = "Archive ${tracker.icon} ${tracker.title}?", fontWeight = FontWeight.Bold)
+        },
+        text = {
+            Text(
+                fontFamily = appFont,
+                text = "This habit will leave your active dashboard, routine list, and daily reminders. All past check-ins, journal notes, and streak records will be safely preserved in reports. You can unarchive it at any time."
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onConfirm(tracker.id)
+                    onDismiss()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = primaryColor)
+            ) {
+                Text(
+                    fontFamily = appFont,
+                    text = "Archive habit",
+                    color = if (primaryColor == Color.White) Color.Black else Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        },
+        dismissButton = {
+            OutlinedButton(
+                onClick = onDismiss,
+                border = BorderStroke(1.dp, borderColor),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = textColor)
+            ) {
+                Text(fontFamily = appFont, text = "Cancel")
+            }
+        }
+    )
+}
+
+@Composable
 fun DeleteTrackerDialog(
     tracker: TrackerConfig?,
     onDismiss: () -> Unit,
@@ -832,10 +906,13 @@ fun DeleteTrackerDialog(
         titleContentColor = textColor,
         textContentColor = secondaryTextColor,
         title = {
-            Text(fontFamily = appFont, text = "Delete ${tracker.title}?", fontWeight = FontWeight.Bold)
+            Text(fontFamily = appFont, text = "Permanently Delete ${tracker.icon} ${tracker.title}?", fontWeight = FontWeight.Bold, color = Color.Red)
         },
         text = {
-            Text(fontFamily = appFont, text = "Are you sure you want to delete this tracker? All log entries for this habit will be permanently deleted.")
+            Text(
+                fontFamily = appFont,
+                text = "Are you sure? This will PERMANENTLY erase this habit and all its past logs, notes, and streak history. This cannot be undone.\n\nTip: To safely remove this habit from active use while keeping your history, use 'Archive habit' instead."
+            )
         },
         confirmButton = {
             Button(
@@ -843,9 +920,9 @@ fun DeleteTrackerDialog(
                     onConfirm(tracker.id)
                     onDismiss()
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = primaryColor)
+                colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
             ) {
-                Text(fontFamily = appFont, text = "Delete Tracker", color = if (primaryColor == Color.White) Color.Black else Color.White)
+                Text(fontFamily = appFont, text = "Delete Permanently", color = Color.White, fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
@@ -858,6 +935,206 @@ fun DeleteTrackerDialog(
             }
         }
     )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ArchivedHabitsSheet(
+    visible: Boolean,
+    onDismiss: () -> Unit,
+    archivedTrackers: List<TrackerConfig>,
+    onUnarchive: (String) -> Unit,
+    onDeletePermanently: (String) -> Unit,
+    appFont: FontFamily,
+    primaryColor: Color,
+    textColor: Color,
+    secondaryTextColor: Color,
+    cardBgColor: Color,
+    borderColor: Color
+) {
+    if (!visible) return
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = cardBgColor,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 8.dp)
+                .padding(bottom = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(text = "📦", fontSize = 20.sp)
+                    Text(
+                        text = "Archived Habits",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = textColor,
+                        fontFamily = appFont
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(borderColor.copy(alpha = 0.25f))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = "${archivedTrackers.size} retired",
+                        fontFamily = appFont,
+                        fontSize = 11.sp,
+                        color = secondaryTextColor,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
+            if (archivedTrackers.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(text = "✨", fontSize = 32.sp)
+                        Text(
+                            text = "No archived habits",
+                            fontFamily = appFont,
+                            fontWeight = FontWeight.Bold,
+                            color = textColor,
+                            fontSize = 15.sp
+                        )
+                        Text(
+                            text = "Archived habits will be safely kept here with all historical records intact.",
+                            fontFamily = appFont,
+                            color = secondaryTextColor,
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            } else {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    archivedTrackers.forEach { tracker ->
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = borderColor.copy(alpha = 0.15f)),
+                            border = BorderStroke(0.5.dp, borderColor),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(38.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(borderColor.copy(alpha = 0.3f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(text = tracker.icon, fontSize = 20.sp)
+                                    }
+                                    Column {
+                                        Text(
+                                            text = tracker.title,
+                                            fontFamily = appFont,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            color = textColor
+                                        )
+                                        val freqDesc = when (tracker.frequencyType) {
+                                            "weekly_quota" -> "${tracker.weeklyTarget}x per week quota"
+                                            "weekdays" -> "Weekdays"
+                                            "custom_days" -> tracker.targetDays
+                                            else -> "Daily"
+                                        }
+                                        Text(
+                                            text = "$freqDesc · History preserved",
+                                            fontFamily = appFont,
+                                            fontSize = 11.sp,
+                                            color = secondaryTextColor
+                                        )
+                                    }
+                                }
+
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Button(
+                                        onClick = { onUnarchive(tracker.id) },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = primaryColor.copy(alpha = 0.18f),
+                                            contentColor = if (primaryColor == Color.White) textColor else primaryColor
+                                        ),
+                                        shape = RoundedCornerShape(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(Icons.Default.Refresh, contentDescription = "Unarchive", modifier = Modifier.size(16.dp))
+                                            Text(
+                                                fontFamily = appFont,
+                                                text = "Unarchive",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 12.sp
+                                            )
+                                        }
+                                    }
+
+                                    IconButton(
+                                        onClick = { onDeletePermanently(tracker.id) },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Delete,
+                                            contentDescription = "Delete permanently",
+                                            tint = secondaryTextColor,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+            TextButton(onClick = onDismiss) {
+                Text(fontFamily = appFont, text = "Close", color = secondaryTextColor)
+            }
+        }
+    }
 }
 
 @Composable

@@ -20,6 +20,9 @@ interface TrackerDao {
     @Update
     suspend fun updateTracker(tracker: Tracker)
 
+    @Query("UPDATE trackers SET isArchived = :isArchived WHERE id = :id")
+    suspend fun setArchived(id: String, isArchived: Boolean)
+
     @Delete
     suspend fun deleteTracker(tracker: Tracker)
     

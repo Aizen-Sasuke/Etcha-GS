@@ -39,7 +39,22 @@ class ReminderReceiver : BroadcastReceiver() {
             return
         }
 
-        showNotification(context, "Time to check in", "Don't break the chain!")
+        val pendingNotificationResult = goAsync()
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val db = AppDatabase.getDatabase(context)
+                val activeTrackers = db.trackerDao().getAllTrackersList().filter { !it.isArchived }
+                if (activeTrackers.isNotEmpty()) {
+                    val habitNames = activeTrackers.take(2).joinToString(", ") { "${it.icon} ${it.title}" }
+                    val msg = if (activeTrackers.size > 2) "$habitNames and ${activeTrackers.size - 2} more" else habitNames
+                    showNotification(context, "Time to check in", "Don't break the chain! $msg")
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                pendingNotificationResult.finish()
+            }
+        }
         
         // Reschedule for next day
         val timeStr = intent.getStringExtra("timeStr") ?: "21:00"

@@ -99,6 +99,9 @@ fun PreferencesScreen(
     var showDonateDialog by remember { mutableStateOf(false) }
     var showOnboardingDialog by remember { mutableStateOf(false) }
     var showCloudBackupModal by remember { mutableStateOf(false) }
+    var showArchivedHabitsSheet by remember { mutableStateOf(false) }
+    var trackerToDeletePermanently by remember { mutableStateOf<com.example.ui.TrackerConfig?>(null) }
+    val archivedTrackers by viewModel.archivedTrackers.collectAsState()
     val googleEmail by viewModel.googleAccountEmail.collectAsState()
     val lastBackupTime by viewModel.lastCloudBackupTime.collectAsState()
 
@@ -591,6 +594,69 @@ fun PreferencesScreen(
                 }
             }
 
+            // Archived Habits Card
+            Card(
+                colors = CardDefaults.cardColors(containerColor = cardBgColor),
+                border = BorderStroke(0.5.dp, borderColor),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(primaryColor.copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("📦", fontSize = 18.sp)
+                            }
+                            Column {
+                                Text(
+                                    text = "Archived Habits",
+                                    color = textColor,
+                                    fontSize = 15.sp,
+                                    fontFamily = appFont,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = if (archivedTrackers.isNotEmpty()) "${archivedTrackers.size} retired habit(s) · History preserved" else "No habits currently archived",
+                                    color = secondaryTextColor,
+                                    fontFamily = appFont,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+
+                    Button(
+                        onClick = { showArchivedHabitsSheet = true },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = primaryColor.copy(alpha = 0.16f),
+                            contentColor = if (primaryColor == Color.White) textColor else primaryColor
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        border = BorderStroke(0.5.dp, primaryColor.copy(alpha = 0.4f))
+                    ) {
+                        Text(
+                            text = "📦 View & Manage Archived Habits (${archivedTrackers.size})",
+                            fontFamily = appFont,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
             // Support the Developer / Tip Jar Card
             Card(
                 colors = CardDefaults.cardColors(containerColor = cardBgColor),
@@ -828,6 +894,36 @@ fun PreferencesScreen(
                 onOpenDonate = { showDonateDialog = true }
             )
         }
+
+        ArchivedHabitsSheet(
+            visible = showArchivedHabitsSheet,
+            onDismiss = { showArchivedHabitsSheet = false },
+            archivedTrackers = archivedTrackers,
+            onUnarchive = { id -> viewModel.unarchiveTracker(id) },
+            onDeletePermanently = { id ->
+                trackerToDeletePermanently = archivedTrackers.find { it.id == id }
+            },
+            appFont = appFont,
+            primaryColor = primaryColor,
+            textColor = textColor,
+            secondaryTextColor = secondaryTextColor,
+            cardBgColor = cardBgColor,
+            borderColor = borderColor
+        )
+
+        DeleteTrackerDialog(
+            tracker = trackerToDeletePermanently,
+            onDismiss = { trackerToDeletePermanently = null },
+            onConfirm = { id ->
+                viewModel.deleteTracker(id)
+            },
+            appFont = appFont,
+            primaryColor = primaryColor,
+            textColor = textColor,
+            secondaryTextColor = secondaryTextColor,
+            cardBgColor = cardBgColor,
+            borderColor = borderColor
+        )
     }
 }
 

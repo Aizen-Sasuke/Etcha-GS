@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [HabitEntry::class, PreferenceEntry::class, Tracker::class], version = 7, exportSchema = false)
+@Database(entities = [HabitEntry::class, PreferenceEntry::class, Tracker::class], version = 8, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun habitDao(): HabitDao
     abstract fun trackerDao(): TrackerDao
@@ -101,6 +101,12 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                addColumnIfNotExists(db, "trackers", "isArchived", "INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -108,16 +114,16 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "habit_tracker_database"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                 .fallbackToDestructiveMigrationOnDowngrade(true)
                 .addCallback(object : RoomDatabase.Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)
-                        db.execSQL("INSERT OR IGNORE INTO trackers (id, title, icon, sortOrder, accentColor, type, frequencyType, targetDays, targetCount, timeOfDay, weeklyTarget) VALUES ('sobriety', 'Sobriety', '🚭', 0, NULL, 'good', 'daily', 'MON,TUE,WED,THU,FRI,SAT,SUN', 1, 'anytime', 0)")
-                        db.execSQL("INSERT OR IGNORE INTO trackers (id, title, icon, sortOrder, accentColor, type, frequencyType, targetDays, targetCount, timeOfDay, weeklyTarget) VALUES ('gym', 'Gym & Workout', '🏋️‍♂️', 1, '#FF5722', 'good', 'weekly', 'MON,TUE,THU,FRI,SAT', 1, 'morning', 0)")
-                        db.execSQL("INSERT OR IGNORE INTO trackers (id, title, icon, sortOrder, accentColor, type, frequencyType, targetDays, targetCount, timeOfDay, weeklyTarget) VALUES ('gardening', 'Gardening', '🌿', 2, '#4CAF50', 'good', 'daily', 'MON,TUE,WED,THU,FRI,SAT,SUN', 1, 'afternoon', 0)")
-                        db.execSQL("INSERT OR IGNORE INTO trackers (id, title, icon, sortOrder, accentColor, type, frequencyType, targetDays, targetCount, timeOfDay, weeklyTarget) VALUES ('reading', 'Daily Reading', '📚', 3, '#2196F3', 'good', 'daily', 'MON,TUE,WED,THU,FRI,SAT,SUN', 1, 'evening', 0)")
-                        db.execSQL("INSERT OR IGNORE INTO trackers (id, title, icon, sortOrder, accentColor, type, frequencyType, targetDays, targetCount, timeOfDay, weeklyTarget) VALUES ('water', 'Hydration', '💧', 4, '#00BCD4', 'good', 'daily', 'MON,TUE,WED,THU,FRI,SAT,SUN', 8, 'anytime', 0)")
+                        db.execSQL("INSERT OR IGNORE INTO trackers (id, title, icon, sortOrder, accentColor, type, frequencyType, targetDays, targetCount, timeOfDay, weeklyTarget, isArchived) VALUES ('sobriety', 'Sobriety', '🚭', 0, NULL, 'good', 'daily', 'MON,TUE,WED,THU,FRI,SAT,SUN', 1, 'anytime', 0, 0)")
+                        db.execSQL("INSERT OR IGNORE INTO trackers (id, title, icon, sortOrder, accentColor, type, frequencyType, targetDays, targetCount, timeOfDay, weeklyTarget, isArchived) VALUES ('gym', 'Gym & Workout', '🏋️‍♂️', 1, '#FF5722', 'good', 'weekly', 'MON,TUE,THU,FRI,SAT', 1, 'morning', 0, 0)")
+                        db.execSQL("INSERT OR IGNORE INTO trackers (id, title, icon, sortOrder, accentColor, type, frequencyType, targetDays, targetCount, timeOfDay, weeklyTarget, isArchived) VALUES ('gardening', 'Gardening', '🌿', 2, '#4CAF50', 'good', 'daily', 'MON,TUE,WED,THU,FRI,SAT,SUN', 1, 'afternoon', 0, 0)")
+                        db.execSQL("INSERT OR IGNORE INTO trackers (id, title, icon, sortOrder, accentColor, type, frequencyType, targetDays, targetCount, timeOfDay, weeklyTarget, isArchived) VALUES ('reading', 'Daily Reading', '📚', 3, '#2196F3', 'good', 'daily', 'MON,TUE,WED,THU,FRI,SAT,SUN', 1, 'evening', 0, 0)")
+                        db.execSQL("INSERT OR IGNORE INTO trackers (id, title, icon, sortOrder, accentColor, type, frequencyType, targetDays, targetCount, timeOfDay, weeklyTarget, isArchived) VALUES ('water', 'Hydration', '💧', 4, '#00BCD4', 'good', 'daily', 'MON,TUE,WED,THU,FRI,SAT,SUN', 8, 'anytime', 0, 0)")
                     }
                 })
                 .build()

@@ -28,6 +28,7 @@ class HabitRepository(
 
     suspend fun insertTracker(tracker: Tracker) = trackerDao.insertTracker(tracker)
     suspend fun updateTracker(tracker: Tracker) = trackerDao.updateTracker(tracker)
+    suspend fun setTrackerArchived(id: String, isArchived: Boolean) = trackerDao.setArchived(id, isArchived)
     suspend fun deleteTracker(tracker: Tracker) = trackerDao.deleteTracker(tracker)
     suspend fun deleteTrackerById(id: String) = trackerDao.deleteTrackerById(id)
 

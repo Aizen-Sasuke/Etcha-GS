@@ -49,7 +49,7 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    val trackers: StateFlow<List<TrackerConfig>> = trackersRaw.map { list ->
+    val allTrackers: StateFlow<List<TrackerConfig>> = trackersRaw.map { list ->
         list.sortedBy { it.sortOrder }.map { 
             TrackerConfig(
                 id = it.id, 
@@ -61,9 +61,18 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
                 targetDays = it.targetDays,
                 targetCount = it.targetCount,
                 timeOfDay = it.timeOfDay,
-                weeklyTarget = it.weeklyTarget
+                weeklyTarget = it.weeklyTarget,
+                isArchived = it.isArchived
             ) 
         }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val trackers: StateFlow<List<TrackerConfig>> = allTrackers.map { list ->
+        list.filter { !it.isArchived }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val archivedTrackers: StateFlow<List<TrackerConfig>> = allTrackers.map { list ->
+        list.filter { it.isArchived }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val selectedTrackerId: StateFlow<String> = preferences.map { prefs ->
@@ -71,8 +80,8 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "sobriety")
 
     val activeTracker: StateFlow<TrackerConfig> = combine(trackers, selectedTrackerId) { list, activeId ->
-        list.find { it.id == activeId } ?: list.firstOrNull() ?: TrackerConfig("sobriety", "Sobriety", "🚭", null, "good", "daily", "MON,TUE,WED,THU,FRI,SAT,SUN", 1, "anytime", 0)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TrackerConfig("sobriety", "Sobriety", "🚭", null, "good", "daily", "MON,TUE,WED,THU,FRI,SAT,SUN", 1, "anytime", 0))
+        list.find { it.id == activeId } ?: list.firstOrNull() ?: TrackerConfig("sobriety", "Sobriety", "🚭", null, "good", "daily", "MON,TUE,WED,THU,FRI,SAT,SUN", 1, "anytime", 0, isArchived = false)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TrackerConfig("sobriety", "Sobriety", "🚭", null, "good", "daily", "MON,TUE,WED,THU,FRI,SAT,SUN", 1, "anytime", 0, isArchived = false))
 
     val streakFreezeDate: StateFlow<String?> = preferences.map { prefs ->
         val v = prefs["streak_freeze_date"]
@@ -309,6 +318,26 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
         calculateStats(list, freezeActive, freezeHist, tracker)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HabitStats())
 
+    private val _reportSelectedTrackerId = MutableStateFlow<String?>(null)
+    val reportSelectedTrackerId: StateFlow<String?> = _reportSelectedTrackerId.asStateFlow()
+
+    fun selectReportTracker(id: String?) {
+        _reportSelectedTrackerId.value = id
+    }
+
+    val reportTracker: StateFlow<TrackerConfig> = combine(allTrackers, _reportSelectedTrackerId, activeTracker) { all, reportId, active ->
+        if (reportId != null) all.find { it.id == reportId } ?: active else active
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TrackerConfig("sobriety", "Sobriety", "🚭", null, "good", "daily", "MON,TUE,WED,THU,FRI,SAT,SUN", 1, "anytime", 0, isArchived = false))
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val reportEntries: Flow<List<HabitEntry>> = reportTracker.map { it.id }.distinctUntilChanged().flatMapLatest { id ->
+        repository.getEntriesForTracker(id)
+    }
+
+    val reportStats: StateFlow<HabitStats> = combine(reportEntries, reportTracker, streakFreezeDate, streakFreezeHistory) { list, tracker, freezeActive, freezeHist ->
+        calculateStats(list, freezeActive, freezeHist, tracker)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HabitStats())
+
     // Tracker management actions
     fun selectTracker(id: String) {
         viewModelScope.launch {
@@ -397,13 +426,43 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    fun archiveTracker(trackerId: String) {
+        viewModelScope.launch {
+            val all = repository.getAllTrackersList()
+            val target = all.find { it.id == trackerId } ?: return@launch
+            if (target.isArchived) return@launch // Idempotent
+
+            repository.setTrackerArchived(trackerId, true)
+
+            // If the archived tracker was selected, switch selection to next available active tracker
+            if (selectedTrackerId.value == trackerId) {
+                val nextActive = all.firstOrNull { it.id != trackerId && !it.isArchived }
+                if (nextActive != null) {
+                    repository.setPreference("selected_tracker_id", nextActive.id)
+                }
+            }
+            updateWidget()
+        }
+    }
+
+    fun unarchiveTracker(trackerId: String) {
+        viewModelScope.launch {
+            val all = repository.getAllTrackersList()
+            val target = all.find { it.id == trackerId } ?: return@launch
+            if (!target.isArchived) return@launch // Idempotent
+
+            repository.setTrackerArchived(trackerId, false)
+            updateWidget()
+        }
+    }
+
     fun deleteTracker(trackerId: String) {
         viewModelScope.launch {
             // Delete associated tracker; CASCADE will delete its entries too
             repository.deleteTrackerById(trackerId)
             
-            // If deleted was selected, fallback to the remaining first
-            val currentList = trackersRaw.value.filter { it.id != trackerId }
+            // If deleted was selected, fallback to the remaining active first
+            val currentList = trackersRaw.value.filter { it.id != trackerId && !it.isArchived }
             if (currentList.isNotEmpty() && selectedTrackerId.value == trackerId) {
                 repository.setPreference("selected_tracker_id", currentList.first().id)
             }
@@ -414,6 +473,10 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
     // Database Actions
     fun insertEntry(entry: HabitEntry) {
         viewModelScope.launch {
+            val targetTracker = trackersRaw.value.find { it.id == entry.trackerId }
+            if (targetTracker != null && targetTracker.isArchived) {
+                return@launch // Disallow check-in on archived tracker
+            }
             repository.insertEntry(entry)
             updateWidget()
         }
@@ -421,12 +484,17 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
 
     fun insertEntry(dateString: String, count: Int = 1, notes: String? = null) {
         viewModelScope.launch {
+            val currentId = selectedTrackerId.value
+            val targetTracker = trackersRaw.value.find { it.id == currentId }
+            if (targetTracker != null && targetTracker.isArchived) {
+                return@launch // Disallow check-in on archived tracker
+            }
             repository.insertEntry(
                 HabitEntry(
                     dateString = dateString,
                     count = count,
                     notes = notes,
-                    trackerId = selectedTrackerId.value
+                    trackerId = currentId
                 )
             )
             updateWidget()
@@ -443,6 +511,10 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
     ) {
         viewModelScope.launch {
             val currentId = selectedTrackerId.value
+            val targetTracker = trackersRaw.value.find { it.id == currentId }
+            if (targetTracker != null && targetTracker.isArchived) {
+                return@launch // Disallow check-in on archived tracker
+            }
             val existing = repository.getEntriesForTrackerAndDate(currentId, dateString)
             val formattedMood = moodTag?.let { "[MOOD:$it]" }
             val token = System.nanoTime()
@@ -1314,6 +1386,7 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
                     tobj.put("timeOfDay", t.timeOfDay)
                     tobj.put("sortOrder", t.sortOrder)
                     tobj.put("weeklyTarget", t.weeklyTarget)
+                    tobj.put("isArchived", t.isArchived)
                     trackersArr.put(tobj)
                 }
                 root.put("trackers", trackersArr)
@@ -1409,7 +1482,8 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
                                 targetCount = obj.optInt("targetCount", 1),
                                 timeOfDay = obj.optString("timeOfDay", "anytime"),
                                 sortOrder = obj.optInt("sortOrder", i),
-                                weeklyTarget = obj.optInt("weeklyTarget", 0)
+                                weeklyTarget = obj.optInt("weeklyTarget", 0),
+                                isArchived = obj.optBoolean("isArchived", false)
                             )
                         )
                     }
@@ -1543,7 +1617,8 @@ data class TrackerConfig(
     val targetDays: String = "MON,TUE,WED,THU,FRI,SAT,SUN",
     val targetCount: Int = 1,
     val timeOfDay: String = "anytime",
-    val weeklyTarget: Int = 0
+    val weeklyTarget: Int = 0,
+    val isArchived: Boolean = false
 )
 
 data class QuickCheckInRecord(

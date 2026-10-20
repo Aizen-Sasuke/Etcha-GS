@@ -53,9 +53,10 @@ fun ReportScreen(
     viewModel: HabitViewModel,
     modifier: Modifier = Modifier
 ) {
-    val stats by viewModel.stats.collectAsState(initial = HabitStats())
-    val entries by viewModel.entries.collectAsState(initial = emptyList())
-    val activeTracker by viewModel.activeTracker.collectAsState()
+    val stats by viewModel.reportStats.collectAsState(initial = HabitStats())
+    val entries by viewModel.reportEntries.collectAsState(initial = emptyList())
+    val activeTracker by viewModel.reportTracker.collectAsState()
+    val allTrackers by viewModel.allTrackers.collectAsState()
     
     val selectedTheme by viewModel.selectedTheme.collectAsState()
     val selectedFont by viewModel.selectedFont.collectAsState()
@@ -275,11 +276,78 @@ fun ReportScreen(
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
+            // Habit Selection Row (Supports active and archived habits)
+            androidx.compose.foundation.lazy.LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                items(allTrackers, key = { it.id }) { tracker ->
+                    val isSelected = tracker.id == activeTracker.id
+                    val isArchived = tracker.isArchived
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                if (isSelected) primaryColor.copy(alpha = 0.2f) else cardBgColor
+                            )
+                            .border(
+                                width = if (isSelected) 1.5.dp else 0.5.dp,
+                                color = if (isSelected) primaryColor else borderColor,
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            .clickable { viewModel.selectReportTracker(tracker.id) }
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Text(text = if (isArchived) "📦 ${tracker.icon}" else tracker.icon, fontSize = 13.sp)
+                            Text(
+                                text = if (isArchived) "${tracker.title} (Archived)" else tracker.title,
+                                fontFamily = appFont,
+                                fontSize = 12.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSelected) primaryColor else (if (isArchived) secondaryTextColor else textColor)
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (activeTracker.isArchived) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(borderColor.copy(alpha = 0.25f))
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(text = "📦", fontSize = 13.sp)
+                        Text(
+                            text = "Archived Habit — Past logs, streaks, and milestone achievements are safely preserved.",
+                            fontFamily = appFont,
+                            fontSize = 11.sp,
+                            color = secondaryTextColor,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
+
             // Segmented Top Tab Selector (always visible at top)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 10.dp)
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(if (ThemeStyles.isLightTheme(selectedTheme)) borderColor.copy(alpha = 0.25f) else Color(0xFF141414))
                     .padding(4.dp),

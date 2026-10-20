@@ -15,5 +15,6 @@ data class Tracker(
     val targetDays: String = "MON,TUE,WED,THU,FRI,SAT,SUN",
     val targetCount: Int = 1,
     val timeOfDay: String = "anytime", // "anytime", "morning", "afternoon", "evening"
-    val weeklyTarget: Int = 0
+    val weeklyTarget: Int = 0,
+    val isArchived: Boolean = false
 )

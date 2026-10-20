@@ -34,9 +34,10 @@ class HabitAppWidgetProvider : AppWidgetProvider() {
                 try {
                     val db = AppDatabase.getDatabase(context)
                     val trackers = db.trackerDao().getAllTrackersList()
+                    val activeTrackers = trackers.filter { !it.isArchived }
                     val activeId = db.habitDao().getPreferenceValue("selected_tracker_id") ?: "sobriety"
-                    val tracker = trackers.find { it.id == activeId } ?: trackers.firstOrNull()
-                    if (tracker != null) {
+                    val tracker = activeTrackers.find { it.id == activeId } ?: activeTrackers.firstOrNull()
+                    if (tracker != null && !tracker.isArchived) {
                         val todayString = LocalDate.now().toString()
                         val existing = db.habitDao().getEntriesForTrackerAndDate(tracker.id, todayString)
                         if (existing.isEmpty()) {
@@ -103,8 +104,24 @@ class HabitAppWidgetProvider : AppWidgetProvider() {
             try {
                 val db = AppDatabase.getDatabase(context)
                 val trackers = db.trackerDao().getAllTrackersList()
+                val activeTrackers = trackers.filter { !it.isArchived }
                 val activeId = db.habitDao().getPreferenceValue("selected_tracker_id") ?: "sobriety"
-                val activeTracker = trackers.find { it.id == activeId } ?: trackers.firstOrNull()
+                val activeTracker = activeTrackers.find { it.id == activeId } ?: activeTrackers.firstOrNull()
+
+                if (activeTracker == null) {
+                    for (widgetId in appWidgetIds) {
+                        val views = RemoteViews(context.packageName, R.layout.widget_habit_today).apply {
+                            setTextViewText(R.id.widget_habit_icon, "📦")
+                            setTextViewText(R.id.widget_habit_title, "All Habits Archived")
+                            setTextViewText(R.id.widget_habit_status, "Tap to restore or add habits")
+                            setTextViewText(R.id.widget_btn_action, "Open App")
+                            setOnClickPendingIntent(R.id.widget_btn_action, openAppPendingIntent)
+                            setOnClickPendingIntent(R.id.widget_root, openAppPendingIntent)
+                        }
+                        appWidgetManager.updateAppWidget(widgetId, views)
+                    }
+                    return@launch
+                }
 
                 val todayString = LocalDate.now().toString()
                 val entries = if (activeTracker != null) {
