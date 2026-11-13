@@ -226,7 +226,7 @@ class DatabaseBackupRestoreTest {
         val m23 = AppDatabase::class.java.getDeclaredField("MIGRATION_2_3").apply { isAccessible = true }.get(null) as androidx.room.migration.Migration
         m23.migrate(db)
 
-        // Apply MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7
+        // Apply MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9
         val m34 = AppDatabase::class.java.getDeclaredField("MIGRATION_3_4").apply { isAccessible = true }.get(null) as androidx.room.migration.Migration
         m34.migrate(db)
         val m45 = AppDatabase::class.java.getDeclaredField("MIGRATION_4_5").apply { isAccessible = true }.get(null) as androidx.room.migration.Migration
@@ -235,6 +235,10 @@ class DatabaseBackupRestoreTest {
         m56.migrate(db)
         val m67 = AppDatabase::class.java.getDeclaredField("MIGRATION_6_7").apply { isAccessible = true }.get(null) as androidx.room.migration.Migration
         m67.migrate(db)
+        val m78 = AppDatabase::class.java.getDeclaredField("MIGRATION_7_8").apply { isAccessible = true }.get(null) as androidx.room.migration.Migration
+        m78.migrate(db)
+        val m89 = AppDatabase::class.java.getDeclaredField("MIGRATION_8_9").apply { isAccessible = true }.get(null) as androidx.room.migration.Migration
+        m89.migrate(db)
 
         // Verify habit_entries migrated with default 'sobriety' trackerId
         val cursor = db.query("SELECT id, trackerId, notes FROM habit_entries WHERE id = 1")
@@ -243,20 +247,23 @@ class DatabaseBackupRestoreTest {
         assertEquals("Legacy", cursor.getString(2))
         cursor.close()
 
-        // Verify trackers table has all columns including frequencyType and weeklyTarget
-        val trackersCursor = db.query("SELECT id, frequencyType, targetCount, weeklyTarget FROM trackers WHERE id = 'sobriety'")
+        // Verify trackers table has all columns including archive & per-habit reminder defaults
+        val trackersCursor = db.query("SELECT id, frequencyType, targetCount, weeklyTarget, isArchived, reminderEnabled, reminderTime FROM trackers WHERE id = 'sobriety'")
         assertTrue(trackersCursor.moveToFirst())
         assertEquals("daily", trackersCursor.getString(1))
         assertEquals(1, trackersCursor.getInt(2))
         assertEquals(0, trackersCursor.getInt(3))
+        assertEquals(0, trackersCursor.getInt(4))
+        assertEquals(0, trackersCursor.getInt(5))
+        assertEquals("21:00", trackersCursor.getString(6))
         trackersCursor.close()
 
         db.close()
     }
 
     @Test
-    fun testJsonBackupAndRestorePreservesWeeklyTarget() = runBlocking {
-        // Create snapshot payload JSON directly with weeklyTarget = 4
+    fun testJsonBackupAndRestorePreservesWeeklyTargetAndReminders() = runBlocking {
+        // Create snapshot payload JSON directly with weeklyTarget = 4 and per-habit reminder settings
         val jsonPayload = JSONObject().apply {
             put("app", "HabitTrackerCloudBackup")
             put("version", 2)
@@ -272,6 +279,8 @@ class DatabaseBackupRestoreTest {
                     put("timeOfDay", "anytime")
                     put("sortOrder", 0)
                     put("weeklyTarget", 4)
+                    put("reminderEnabled", true)
+                    put("reminderTime", "07:30")
                 })
             }
             put("trackers", arr)
@@ -294,7 +303,9 @@ class DatabaseBackupRestoreTest {
                     targetCount = obj.optInt("targetCount", 1),
                     timeOfDay = obj.optString("timeOfDay", "anytime"),
                     sortOrder = obj.optInt("sortOrder", i),
-                    weeklyTarget = obj.optInt("weeklyTarget", 0)
+                    weeklyTarget = obj.optInt("weeklyTarget", 0),
+                    reminderEnabled = obj.optBoolean("reminderEnabled", false),
+                    reminderTime = obj.optString("reminderTime", "21:00")
                 )
             )
         }
@@ -305,11 +316,13 @@ class DatabaseBackupRestoreTest {
         assertTrue(restored != null)
         assertEquals("weekly_quota", restored?.frequencyType)
         assertEquals(4, restored?.weeklyTarget)
+        assertEquals(true, restored?.reminderEnabled)
+        assertEquals("07:30", restored?.reminderTime)
     }
 
     @Test
-    fun testLegacyJsonBackupWithoutWeeklyTargetDefaultsSafelyToZero() = runBlocking {
-        // Legacy payload without weeklyTarget field
+    fun testLegacyJsonBackupWithoutWeeklyTargetOrReminderFieldsDefaultsSafely() = runBlocking {
+        // Legacy payload without weeklyTarget or reminder fields
         val legacyJsonPayload = JSONObject().apply {
             put("app", "HabitTrackerCloudBackup")
             put("version", 1)
@@ -324,7 +337,7 @@ class DatabaseBackupRestoreTest {
                     put("targetCount", 1)
                     put("timeOfDay", "morning")
                     put("sortOrder", 1)
-                    // Note: weeklyTarget is absent!
+                    // Note: weeklyTarget, reminderEnabled, reminderTime are absent!
                 })
             }
             put("trackers", arr)
@@ -347,7 +360,9 @@ class DatabaseBackupRestoreTest {
                     targetCount = obj.optInt("targetCount", 1),
                     timeOfDay = obj.optString("timeOfDay", "anytime"),
                     sortOrder = obj.optInt("sortOrder", i),
-                    weeklyTarget = obj.optInt("weeklyTarget", 0)
+                    weeklyTarget = obj.optInt("weeklyTarget", 0),
+                    reminderEnabled = obj.optBoolean("reminderEnabled", false),
+                    reminderTime = obj.optString("reminderTime", "21:00")
                 )
             )
         }
@@ -359,5 +374,7 @@ class DatabaseBackupRestoreTest {
         assertEquals("weekly", restored?.frequencyType)
         assertEquals("MON,WED,FRI", restored?.targetDays)
         assertEquals(0, restored?.weeklyTarget)
+        assertEquals(false, restored?.reminderEnabled)
+        assertEquals("21:00", restored?.reminderTime)
     }
 }

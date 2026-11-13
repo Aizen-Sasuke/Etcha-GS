@@ -7,6 +7,8 @@ import com.example.data.AppDatabase
 import com.example.data.HabitEntry
 import com.example.data.HabitRepository
 import com.example.data.Tracker
+import com.example.worker.ReminderManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -21,49 +23,43 @@ import org.json.JSONObject
 open class HabitViewModel(application: Application) : AndroidViewModel(application) {
     private val appDb = AppDatabase.getDatabase(application)
     private val repository: HabitRepository = HabitRepository(appDb, appDb.habitDao(), appDb.trackerDao())
-    
+    companion object {
+        private val DATE_FORMATTER: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
+    }
+
     // Expose flows of raw tables
     private val rawEntries: Flow<List<HabitEntry>> = repository.allEntries
-    val preferences: Flow<Map<String, String>> = repository.allPreferences.map { list ->
-        list.associate { it.key to it.value }
-    }
 
-    private val trackersRaw: StateFlow<List<Tracker>> = repository.allTrackers
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    // Replay=1 SharedFlows ensure derived flows wait for the real DB emission instead of pushing emptyMap()/emptyList() on launch
+    private val rawPreferencesFlow: SharedFlow<Map<String, String>> = repository.allPreferences
+        .map { list -> list.associate { it.key to it.value } }
+        .flowOn(Dispatchers.IO)
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5000), replay = 1)
 
-    init {
-        viewModelScope.launch {
-            val current = repository.allTrackers.first()
-            if (current.none { it.id == "gym" }) {
-                repository.insertTracker(Tracker("gym", "Gym & Workout", "🏋️‍♂️", 1, "#FF5722", "good", "weekly", "MON,TUE,THU,FRI,SAT", 1, "morning"))
-            }
-            if (current.none { it.id == "gardening" }) {
-                repository.insertTracker(Tracker("gardening", "Gardening", "🌿", 2, "#4CAF50", "good", "daily", "MON,TUE,WED,THU,FRI,SAT,SUN", 1, "afternoon"))
-            }
-            if (current.none { it.id == "reading" }) {
-                repository.insertTracker(Tracker("reading", "Daily Reading", "📚", 3, "#2196F3", "good", "daily", "MON,TUE,WED,THU,FRI,SAT,SUN", 1, "evening"))
-            }
-            if (current.none { it.id == "water" }) {
-                repository.insertTracker(Tracker("water", "Hydration", "💧", 4, "#00BCD4", "good", "daily", "MON,TUE,WED,THU,FRI,SAT,SUN", 8, "anytime"))
-            }
-        }
-    }
+    val preferences: StateFlow<Map<String, String>> = rawPreferencesFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
-    val allTrackers: StateFlow<List<TrackerConfig>> = trackersRaw.map { list ->
-        list.sortedBy { it.sortOrder }.map { 
+    private val rawTrackersFlow: SharedFlow<List<Tracker>> = repository.allTrackers
+        .flowOn(Dispatchers.IO)
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5000), replay = 1)
+
+    val allTrackers: StateFlow<List<TrackerConfig>> = rawTrackersFlow.map { list ->
+        list.sortedBy { it.sortOrder }.map {
             TrackerConfig(
-                id = it.id, 
-                title = it.title, 
-                icon = it.icon, 
-                accentColor = it.accentColor, 
+                id = it.id,
+                title = it.title,
+                icon = it.icon,
+                accentColor = it.accentColor,
                 type = it.type,
                 frequencyType = it.frequencyType,
                 targetDays = it.targetDays,
                 targetCount = it.targetCount,
                 timeOfDay = it.timeOfDay,
                 weeklyTarget = it.weeklyTarget,
-                isArchived = it.isArchived
-            ) 
+                isArchived = it.isArchived,
+                reminderEnabled = it.reminderEnabled,
+                reminderTime = it.reminderTime
+            )
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -75,22 +71,22 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
         list.filter { it.isArchived }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val selectedTrackerId: StateFlow<String> = preferences.map { prefs ->
+    val selectedTrackerId: StateFlow<String> = rawPreferencesFlow.map { prefs ->
         prefs["selected_tracker_id"] ?: "sobriety"
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "sobriety")
+    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "sobriety")
 
     val activeTracker: StateFlow<TrackerConfig> = combine(trackers, selectedTrackerId) { list, activeId ->
         list.find { it.id == activeId } ?: list.firstOrNull() ?: TrackerConfig("sobriety", "Sobriety", "🚭", null, "good", "daily", "MON,TUE,WED,THU,FRI,SAT,SUN", 1, "anytime", 0, isArchived = false)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TrackerConfig("sobriety", "Sobriety", "🚭", null, "good", "daily", "MON,TUE,WED,THU,FRI,SAT,SUN", 1, "anytime", 0, isArchived = false))
 
-    val streakFreezeDate: StateFlow<String?> = preferences.map { prefs ->
+    val streakFreezeDate: StateFlow<String?> = rawPreferencesFlow.map { prefs ->
         val v = prefs["streak_freeze_date"]
         if (v.isNullOrEmpty()) null else v
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    val streakFreezeHistory: StateFlow<String> = preferences.map { prefs ->
+    val streakFreezeHistory: StateFlow<String> = rawPreferencesFlow.map { prefs ->
         prefs["streak_freeze_history"] ?: ""
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
+    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
     // Dynamically derive title and icon from active tracker
     val habitTitle: StateFlow<String> = activeTracker.map { it.title }
@@ -105,86 +101,119 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
         repository.getEntriesForTracker(activeId)
     }
 
-    val selectedTheme: StateFlow<String> = preferences.map { prefs ->
+    val selectedTheme: StateFlow<String> = rawPreferencesFlow.map { prefs ->
         prefs["selected_theme"] ?: "matte_black"
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "matte_black")
+    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "matte_black")
 
-    val customPrimaryColor: StateFlow<String> = preferences.map { prefs ->
+    val customPrimaryColor: StateFlow<String> = rawPreferencesFlow.map { prefs ->
         prefs["custom_primary_color"] ?: "#FFFFFF"
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "#FFFFFF")
+    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "#FFFFFF")
 
-    val customBackgroundColor: StateFlow<String> = preferences.map { prefs ->
+    val customBackgroundColor: StateFlow<String> = rawPreferencesFlow.map { prefs ->
         prefs["custom_background_color"] ?: "#111111"
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "#111111")
+    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "#111111")
 
-    val selectedFont: StateFlow<String> = preferences.map { prefs ->
+    val selectedFont: StateFlow<String> = rawPreferencesFlow.map { prefs ->
         prefs["selected_font"] ?: "cursive"
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "cursive")
+    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "cursive")
 
-    val calendarCellShape: StateFlow<String> = preferences.map { prefs ->
+    val calendarCellShape: StateFlow<String> = rawPreferencesFlow.map { prefs ->
         prefs["calendar_cell_shape"] ?: "rounded_square"
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "rounded_square")
+    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "rounded_square")
 
-    val checkmarkStyle: StateFlow<String> = preferences.map { prefs ->
+    val checkmarkStyle: StateFlow<String> = rawPreferencesFlow.map { prefs ->
         prefs["checkmark_style"] ?: "tick"
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "tick")
+    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "tick")
 
-    val swipeHintShown: StateFlow<Boolean> = preferences.map { prefs ->
+    val swipeHintShown: StateFlow<Boolean> = rawPreferencesFlow.map { prefs ->
         prefs["swipe_hint_shown"] == "true"
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
-    val reminderTime: StateFlow<String> = preferences.map { prefs ->
+    val reminderTime: StateFlow<String> = rawPreferencesFlow.map { prefs ->
         prefs["reminder_time"] ?: "21:00"
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "21:00")
+    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "21:00")
 
-    val remindersEnabled: StateFlow<Boolean> = preferences.map { prefs ->
+    val remindersEnabled: StateFlow<Boolean> = rawPreferencesFlow.map { prefs ->
         prefs["reminders_enabled"] == "true"
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
-    val dayRolloverHour: StateFlow<Int> = preferences.map { prefs ->
+    val dayRolloverHour: StateFlow<Int> = rawPreferencesFlow.map { prefs ->
         prefs["day_rollover_hour"]?.toIntOrNull() ?: 0
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    val celebrationsEnabled: StateFlow<Boolean> = preferences.map { prefs ->
+    val celebrationsEnabled: StateFlow<Boolean> = rawPreferencesFlow.map { prefs ->
         prefs["celebrations_enabled"] != "false"
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
-    val hasSeenOnboarding: StateFlow<Boolean> = preferences.map { prefs ->
-        prefs["has_seen_onboarding"] == "true"
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+    val hasSeenOnboarding: StateFlow<Boolean> = rawPreferencesFlow.map { prefs ->
+        prefs["has_seen_onboarding"] != "false"
+    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
-    val isSupporter: StateFlow<Boolean> = preferences.map { prefs ->
+    val isSupporter: StateFlow<Boolean> = rawPreferencesFlow.map { prefs ->
         prefs["is_supporter"] == "true"
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
-    val supporterVaultFreezes: StateFlow<Int> = preferences.map { prefs ->
+    val supporterVaultFreezes: StateFlow<Int> = rawPreferencesFlow.map { prefs ->
         prefs["supporter_vault_freezes"]?.toIntOrNull() ?: 3
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 3)
+    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 3)
 
-    val supporterBadgeEnabled: StateFlow<Boolean> = preferences.map { prefs ->
+    val supporterBadgeEnabled: StateFlow<Boolean> = rawPreferencesFlow.map { prefs ->
         prefs["supporter_badge_enabled"] != "false"
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
-    val googleAccountEmail: StateFlow<String?> = preferences.map { prefs ->
+    val googleAccountEmail: StateFlow<String?> = rawPreferencesFlow.map { prefs ->
         prefs["google_account_email"]?.takeIf { it.isNotBlank() }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    val googleAccountName: StateFlow<String?> = preferences.map { prefs ->
+    val googleAccountName: StateFlow<String?> = rawPreferencesFlow.map { prefs ->
         prefs["google_account_name"]?.takeIf { it.isNotBlank() }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    val lastCloudBackupTime: StateFlow<String?> = preferences.map { prefs ->
+    val lastCloudBackupTime: StateFlow<String?> = rawPreferencesFlow.map { prefs ->
         prefs["last_cloud_backup_time"]?.takeIf { it.isNotBlank() }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    val autoCloudBackupEnabled: StateFlow<Boolean> = preferences.map { prefs ->
+    val autoCloudBackupEnabled: StateFlow<Boolean> = rawPreferencesFlow.map { prefs ->
         prefs["auto_cloud_backup_enabled"] != "false"
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
-    val cloudBackupSnapshots: StateFlow<List<CloudBackupSnapshot>> = preferences.map { prefs ->
+    val cloudBackupSnapshots: StateFlow<List<CloudBackupSnapshot>> = rawPreferencesFlow.map { prefs ->
         val raw = prefs["cloud_backup_history"] ?: ""
         parseCloudSnapshots(raw)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.flowOn(Dispatchers.Default).distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val initJob = viewModelScope.launch(Dispatchers.IO) {
+        if (repository.getAllTrackersList().isEmpty()) {
+                repository.insertTracker(Tracker("sobriety", "Sobriety", "🚭", 0, null, "good", "daily", "MON,TUE,WED,THU,FRI,SAT,SUN", 1, "anytime", 0, false))
+                repository.insertTracker(Tracker("gym", "Gym & Workout", "🏋️‍♂️", 1, "#FF5722", "good", "weekly", "MON,TUE,THU,FRI,SAT", 1, "morning", 0, false))
+                repository.insertTracker(Tracker("gardening", "Gardening", "🌿", 2, "#4CAF50", "good", "daily", "MON,TUE,WED,THU,FRI,SAT,SUN", 1, "afternoon", 0, false))
+                repository.insertTracker(Tracker("reading", "Daily Reading", "📚", 3, "#2196F3", "good", "daily", "MON,TUE,WED,THU,FRI,SAT,SUN", 1, "evening", 0, false))
+                repository.insertTracker(Tracker("water", "Hydration", "💧", 4, "#00BCD4", "good", "daily", "MON,TUE,WED,THU,FRI,SAT,SUN", 8, "anytime", 0, false))
+            }
+
+            // Reconcile expired streak freeze only when a freeze date is actually active
+            val freezeActive = repository.getPreference("streak_freeze_date")?.takeIf { it.isNotBlank() }
+            if (freezeActive != null) {
+                val today = LocalDate.now()
+                val freezeDate = try { LocalDate.parse(freezeActive, DATE_FORMATTER) } catch (e: Exception) { null }
+                if (freezeDate != null && freezeDate.isBefore(today)) {
+                    val activeTrackerId = repository.getPreference("selected_tracker_id") ?: "sobriety"
+                    val hasEntry = repository.getEntriesForTrackerAndDate(activeTrackerId, freezeActive).any { it.count > 0 }
+                    if (!hasEntry) {
+                        val freezeHist = repository.getPreference("streak_freeze_history") ?: ""
+                        val newHist = if (freezeHist.isEmpty()) freezeActive else "$freezeHist,$freezeActive"
+                        repository.setPreference("streak_freeze_history", newHist)
+                    }
+                    repository.setPreference("streak_freeze_date", "")
+                }
+            }
+
+            // Reconcile scheduled per-habit and global reminders on app launch
+        try {
+            ReminderManager.rescheduleAllFromDatabase(getApplication(), appDb)
+        } catch (_: Exception) {
+        }
+    }
 
     fun setHasSeenOnboarding(seen: Boolean) {
         viewModelScope.launch {
@@ -308,15 +337,15 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
     // Calculated Statistics as state flows (automatically listening to filtered entries)
     val completionsByDate: StateFlow<Map<String, List<HabitEntry>>> = entries.map { list ->
         list.groupBy { it.dateString }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     val totalCount: StateFlow<Int> = entries.map { list ->
         list.sumOf { it.count }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     val stats: StateFlow<HabitStats> = combine(entries, activeTracker, streakFreezeDate, streakFreezeHistory) { list, tracker, freezeActive, freezeHist ->
         calculateStats(list, freezeActive, freezeHist, tracker)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HabitStats())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HabitStats())
 
     private val _reportSelectedTrackerId = MutableStateFlow<String?>(null)
     val reportSelectedTrackerId: StateFlow<String?> = _reportSelectedTrackerId.asStateFlow()
@@ -336,7 +365,7 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
 
     val reportStats: StateFlow<HabitStats> = combine(reportEntries, reportTracker, streakFreezeDate, streakFreezeHistory) { list, tracker, freezeActive, freezeHist ->
         calculateStats(list, freezeActive, freezeHist, tracker)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HabitStats())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HabitStats())
 
     // Tracker management actions
     fun selectTracker(id: String) {
@@ -347,77 +376,103 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun addTracker(
-        title: String, 
-        icon: String, 
-        accentColor: String? = null, 
+        title: String,
+        icon: String,
+        accentColor: String? = null,
         type: String = "good",
         frequencyType: String = "daily",
         targetDays: String = "MON,TUE,WED,THU,FRI,SAT,SUN",
         targetCount: Int = 1,
         timeOfDay: String = "anytime",
-        weeklyTarget: Int = 0
+        weeklyTarget: Int = 0,
+        reminderEnabled: Boolean = false,
+        reminderTime: String = "21:00"
     ) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
+            initJob.join()
+            val all = repository.getAllTrackersList()
             val newId = "tracker_" + System.currentTimeMillis()
             val newTracker = Tracker(
-                id = newId, 
-                title = title, 
-                icon = icon, 
-                sortOrder = trackersRaw.value.size,
+                id = newId,
+                title = title,
+                icon = icon,
+                sortOrder = all.size,
                 accentColor = accentColor,
                 type = type,
                 frequencyType = frequencyType,
                 targetDays = targetDays,
                 targetCount = targetCount,
                 timeOfDay = timeOfDay,
-                weeklyTarget = weeklyTarget
+                weeklyTarget = weeklyTarget,
+                reminderEnabled = reminderEnabled,
+                reminderTime = reminderTime
             )
             repository.insertTracker(newTracker)
             repository.setPreference("selected_tracker_id", newId)
             if (type == "bad") {
                 repository.setPreference("checkmark_style", "cross")
             }
+            ReminderManager.syncTrackerReminder(getApplication(), newTracker)
             updateWidget()
         }
     }
 
     fun updateTracker(
-        id: String, 
-        title: String, 
-        icon: String, 
-        accentColor: String? = null, 
+        id: String,
+        title: String,
+        icon: String,
+        accentColor: String? = null,
         type: String = "good",
         frequencyType: String = "daily",
         targetDays: String = "MON,TUE,WED,THU,FRI,SAT,SUN",
         targetCount: Int = 1,
         timeOfDay: String = "anytime",
-        weeklyTarget: Int = 0
+        weeklyTarget: Int = 0,
+        reminderEnabled: Boolean? = null,
+        reminderTime: String? = null
     ) {
-        viewModelScope.launch {
-            val existing = trackersRaw.value.find { it.id == id }
+        viewModelScope.launch(Dispatchers.IO) {
+            initJob.join()
+            val existing = repository.getAllTrackersList().find { it.id == id }
             if (existing != null) {
-                repository.updateTracker(
-                    existing.copy(
-                        title = title, 
-                        icon = icon, 
-                        accentColor = accentColor, 
-                        type = type,
-                        frequencyType = frequencyType,
-                        targetDays = targetDays,
-                        targetCount = targetCount,
-                        timeOfDay = timeOfDay,
-                        weeklyTarget = weeklyTarget
-                    )
+                val updated = existing.copy(
+                    title = title,
+                    icon = icon,
+                    accentColor = accentColor,
+                    type = type,
+                    frequencyType = frequencyType,
+                    targetDays = targetDays,
+                    targetCount = targetCount,
+                    timeOfDay = timeOfDay,
+                    weeklyTarget = weeklyTarget,
+                    reminderEnabled = reminderEnabled ?: existing.reminderEnabled,
+                    reminderTime = reminderTime ?: existing.reminderTime
                 )
+                repository.updateTracker(updated)
+                ReminderManager.syncTrackerReminder(getApplication(), updated)
                 updateWidget()
             }
         }
     }
 
+    fun setTrackerReminder(trackerId: String, enabled: Boolean, time: String? = null) {
+        viewModelScope.launch(Dispatchers.IO) {
+            initJob.join()
+            val existing = repository.getAllTrackersList().find { it.id == trackerId } ?: return@launch
+            val updated = existing.copy(
+                reminderEnabled = enabled,
+                reminderTime = time ?: existing.reminderTime
+            )
+            repository.updateTracker(updated)
+            ReminderManager.syncTrackerReminder(getApplication(), updated)
+        }
+    }
+
     fun reorderTrackers(reorderedList: List<TrackerConfig>) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
+            val all = repository.getAllTrackersList()
             reorderedList.forEachIndexed { index, config ->
-                val tracker = trackersRaw.value.find { it.id == config.id }
+                val tracker = all.find { it.id == config.id }
                 if (tracker != null && tracker.sortOrder != index) {
                     repository.updateTracker(tracker.copy(sortOrder = index))
                 }
@@ -427,12 +482,14 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun archiveTracker(trackerId: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
+            initJob.join()
             val all = repository.getAllTrackersList()
             val target = all.find { it.id == trackerId } ?: return@launch
             if (target.isArchived) return@launch // Idempotent
 
             repository.setTrackerArchived(trackerId, true)
+            ReminderManager.cancelTrackerReminder(getApplication(), trackerId)
 
             // If the archived tracker was selected, switch selection to next available active tracker
             if (selectedTrackerId.value == trackerId) {
@@ -446,23 +503,27 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun unarchiveTracker(trackerId: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
+            initJob.join()
             val all = repository.getAllTrackersList()
             val target = all.find { it.id == trackerId } ?: return@launch
             if (!target.isArchived) return@launch // Idempotent
 
             repository.setTrackerArchived(trackerId, false)
+            ReminderManager.syncTrackerReminder(getApplication(), target.copy(isArchived = false))
             updateWidget()
         }
     }
 
     fun deleteTracker(trackerId: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
+            initJob.join()
+            ReminderManager.cancelTrackerReminder(getApplication(), trackerId)
             // Delete associated tracker; CASCADE will delete its entries too
             repository.deleteTrackerById(trackerId)
-            
+
             // If deleted was selected, fallback to the remaining active first
-            val currentList = trackersRaw.value.filter { it.id != trackerId && !it.isArchived }
+            val currentList = repository.getAllTrackersList().filter { it.id != trackerId && !it.isArchived }
             if (currentList.isNotEmpty() && selectedTrackerId.value == trackerId) {
                 repository.setPreference("selected_tracker_id", currentList.first().id)
             }
@@ -472,8 +533,8 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
 
     // Database Actions
     fun insertEntry(entry: HabitEntry) {
-        viewModelScope.launch {
-            val targetTracker = trackersRaw.value.find { it.id == entry.trackerId }
+        viewModelScope.launch(Dispatchers.IO) {
+            val targetTracker = repository.getAllTrackersList().find { it.id == entry.trackerId }
             if (targetTracker != null && targetTracker.isArchived) {
                 return@launch // Disallow check-in on archived tracker
             }
@@ -483,9 +544,9 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun insertEntry(dateString: String, count: Int = 1, notes: String? = null) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             val currentId = selectedTrackerId.value
-            val targetTracker = trackersRaw.value.find { it.id == currentId }
+            val targetTracker = repository.getAllTrackersList().find { it.id == currentId }
             if (targetTracker != null && targetTracker.isArchived) {
                 return@launch // Disallow check-in on archived tracker
             }
@@ -505,13 +566,13 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
     val lastQuickCheckIn: StateFlow<QuickCheckInRecord?> = _lastQuickCheckIn.asStateFlow()
 
     fun quickIncrement(
-        dateString: String, 
+        dateString: String,
         moodTag: String? = null,
         onLogged: ((QuickCheckInRecord) -> Unit)? = null
     ) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             val currentId = selectedTrackerId.value
-            val targetTracker = trackersRaw.value.find { it.id == currentId }
+            val targetTracker = repository.getAllTrackersList().find { it.id == currentId }
             if (targetTracker != null && targetTracker.isArchived) {
                 return@launch // Disallow check-in on archived tracker
             }
@@ -705,31 +766,6 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     // Stats calculations
-    init {
-        viewModelScope.launch {
-            if (repository.getAllTrackersList().isEmpty()) {
-                repository.insertTracker(Tracker("sobriety", "Sobriety", "💪", 0, null, "good", "daily", "MON,TUE,WED,THU,FRI,SAT,SUN", 1, "anytime", 0))
-            }
-        }
-        viewModelScope.launch {
-            combine(entries, streakFreezeDate, streakFreezeHistory, ::Triple).collect { (list, freezeActive, freezeHist) ->
-                if (freezeActive != null) {
-                    val today = LocalDate.now()
-                    val freezeDate = try { LocalDate.parse(freezeActive) } catch(e:Exception) { null }
-                    if (freezeDate != null && freezeDate.isBefore(today)) {
-                        val hasEntry = list.any { it.dateString == freezeActive && it.count > 0 }
-                        if (!hasEntry) {
-                            val newHist = if (freezeHist.isEmpty()) freezeActive else "$freezeHist,$freezeActive"
-                            repository.setPreference("streak_freeze_history", newHist)
-                            repository.setPreference("streak_freeze_date", "")
-                        } else {
-                            repository.setPreference("streak_freeze_date", "")
-                        }
-                    }
-                }
-            }
-        }
-    }
 
     private fun getScheduledDaysOfWeek(tracker: TrackerConfig): Set<java.time.DayOfWeek> {
         return when (tracker.frequencyType) {
@@ -767,7 +803,7 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
     ): Pair<Int, String> {
         if (list.isEmpty()) return Pair(0, "Starting 🌱")
 
-        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+        val formatter = DATE_FORMATTER
         val target = tracker.targetCount.coerceAtLeast(1)
         val completionDates = list.groupBy { it.dateString }
             .filter { (_, entries) -> entries.sumOf { it.count } >= target }
@@ -884,7 +920,7 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
         var thisMonthSum = 0
         var lastMonthSum = 0
 
-        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+        val formatter = DATE_FORMATTER
 
         for (entry in list) {
             try {
@@ -939,7 +975,7 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
             )
         }
         else if (tracker.type == "bad") {
-            val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+            val formatter = DATE_FORMATTER
             val allDates = list.mapNotNull {
                 try { LocalDate.parse(it.dateString, formatter) } catch(e: Exception) { null }
             }.sorted()
@@ -1077,7 +1113,7 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
     ): StreakResult {
         val targetCount = tracker.targetCount.coerceAtLeast(1)
         val weeklyTarget = tracker.weeklyTarget.coerceIn(1, 7)
-        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+        val formatter = DATE_FORMATTER
 
         val completedDates = list
             .groupBy { it.dateString }
@@ -1184,7 +1220,7 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
 
         val dates = completedDates + frozenDates + listOfNotNull(activeFreeze)
         val scheduledDays = getScheduledDaysOfWeek(tracker)
-        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+        val formatter = DATE_FORMATTER
 
         if (dates.isEmpty()) return StreakResult(0, 0, null, null)
 
@@ -1359,17 +1395,17 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
 
     // ── GOOGLE ACCOUNT CLOUD BACKUP & SYNC ──────────────────────────
     fun performCloudBackup(onComplete: (Boolean, String) -> Unit = { _, _ -> }) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
-                val allT = trackersRaw.value
+                val allT = repository.getAllTrackersList()
                 val allE = rawEntries.first()
-                val currentP = preferences.first()
-                
+                val currentP = rawPreferencesFlow.first()
+
                 val root = JSONObject()
                 root.put("app", "HabitTrackerCloudBackup")
                 root.put("version", 2)
                 root.put("timestamp", System.currentTimeMillis())
-                root.put("email", googleAccountEmail.value ?: "device@account")
+                root.put("email", currentP["google_account_email"]?.takeIf { it.isNotBlank() } ?: "device@account")
                 root.put("deviceName", android.os.Build.MODEL ?: "Android Device")
 
                 val trackersArr = JSONArray()
@@ -1387,6 +1423,8 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
                     tobj.put("sortOrder", t.sortOrder)
                     tobj.put("weeklyTarget", t.weeklyTarget)
                     tobj.put("isArchived", t.isArchived)
+                    tobj.put("reminderEnabled", t.reminderEnabled)
+                    tobj.put("reminderTime", t.reminderTime)
                     trackersArr.put(tobj)
                 }
                 root.put("trackers", trackersArr)
@@ -1429,7 +1467,7 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
                 )
 
                 // Update snapshot history (keep latest 5 snapshots)
-                val currentList = cloudBackupSnapshots.value.toMutableList()
+                val currentList = parseCloudSnapshots(currentP["cloud_backup_history"] ?: "").toMutableList()
                 currentList.add(0, newSnapshot)
                 val trimmed = currentList.take(5)
                 
@@ -1456,7 +1494,7 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun restoreFromCloudSnapshot(snapshot: CloudBackupSnapshot, onComplete: (Boolean) -> Unit = {}) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 val root = JSONObject(snapshot.dataJson)
                 if (root.optString("app") != "HabitTrackerCloudBackup") {
@@ -1483,7 +1521,9 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
                                 timeOfDay = obj.optString("timeOfDay", "anytime"),
                                 sortOrder = obj.optInt("sortOrder", i),
                                 weeklyTarget = obj.optInt("weeklyTarget", 0),
-                                isArchived = obj.optBoolean("isArchived", false)
+                                isArchived = obj.optBoolean("isArchived", false),
+                                reminderEnabled = obj.optBoolean("reminderEnabled", false),
+                                reminderTime = obj.optString("reminderTime", "21:00")
                             )
                         )
                     }
@@ -1521,7 +1561,12 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
                     }
                 }
 
+                val preRestoreIds = repository.getAllTrackersList().map { it.id }
                 repository.restoreDatabaseTransaction(trackersList, entriesList, prefsMap)
+                for (oldId in preRestoreIds) {
+                    ReminderManager.cancelTrackerReminder(getApplication(), oldId)
+                }
+                ReminderManager.rescheduleAllFromDatabase(getApplication(), appDb)
                 updateWidget()
                 onComplete(true)
             } catch (e: Exception) {
@@ -1531,8 +1576,9 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun deleteCloudSnapshot(snapshotId: String) {
-        viewModelScope.launch {
-            val currentList = cloudBackupSnapshots.value.filter { it.id != snapshotId }
+        viewModelScope.launch(Dispatchers.IO) {
+            val raw = repository.getPreference("cloud_backup_history") ?: ""
+            val currentList = parseCloudSnapshots(raw).filter { it.id != snapshotId }
             val historyArr = JSONArray()
             for (s in currentList) {
                 val sObj = JSONObject()
@@ -1618,7 +1664,9 @@ data class TrackerConfig(
     val targetCount: Int = 1,
     val timeOfDay: String = "anytime",
     val weeklyTarget: Int = 0,
-    val isArchived: Boolean = false
+    val isArchived: Boolean = false,
+    val reminderEnabled: Boolean = false,
+    val reminderTime: String = "21:00"
 )
 
 data class QuickCheckInRecord(

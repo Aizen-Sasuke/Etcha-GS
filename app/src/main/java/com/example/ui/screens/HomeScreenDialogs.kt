@@ -1,5 +1,10 @@
 package com.example.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -10,8 +15,10 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -22,6 +29,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -29,10 +38,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.core.content.ContextCompat
 import com.example.data.HabitEntry
 import com.example.ui.HabitViewModel
 import com.example.ui.ThemeStyles
 import com.example.ui.TrackerConfig
+import com.example.worker.ReminderManager
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
@@ -63,6 +74,8 @@ fun AddTrackerSheet(
     var newType by remember { mutableStateOf("good") }
     var newTimeOfDay by remember { mutableStateOf("anytime") }
     var newFrequency by remember { mutableStateOf("daily") }
+    var newReminderEnabled by remember { mutableStateOf(false) }
+    var newReminderTime by remember { mutableStateOf("21:00") }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -71,6 +84,7 @@ fun AddTrackerSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 8.dp)
                 .padding(bottom = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -334,6 +348,25 @@ fun AddTrackerSheet(
                 }
             }
             
+            // Per-Habit Reminder Control (Disabled by default for new habits)
+            PerHabitReminderCard(
+                enabled = newReminderEnabled,
+                time = newReminderTime,
+                trackerType = newType,
+                frequencyType = newFrequency,
+                customDays = newCustomDays,
+                weeklyTarget = newWeeklyTarget,
+                onEnabledChange = { newReminderEnabled = it },
+                onTimeChange = { newReminderTime = it },
+                appFont = appFont,
+                primaryColor = primaryColor,
+                textColor = textColor,
+                secondaryTextColor = secondaryTextColor,
+                borderColor = borderColor,
+                cardBgColor = cardBgColor,
+                selectedTheme = selectedTheme
+            )
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -362,7 +395,9 @@ fun AddTrackerSheet(
                                 targetDays = targetDaysString,
                                 targetCount = newTargetCount,
                                 timeOfDay = newTimeOfDay,
-                                weeklyTarget = finalWeeklyTarget
+                                weeklyTarget = finalWeeklyTarget,
+                                reminderEnabled = newReminderEnabled,
+                                reminderTime = newReminderTime
                             )
                             onDismiss()
                         }
@@ -417,16 +452,42 @@ fun ManageTrackerSheet(
                 color = textColor,
                 fontFamily = appFont
             )
+
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(
+                        if (tracker.reminderEnabled) primaryColor.copy(alpha = 0.14f)
+                        else secondaryTextColor.copy(alpha = 0.12f)
+                    )
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    text = if (tracker.reminderEnabled) {
+                        "🔔 Reminder On · ${tracker.reminderTime}"
+                    } else {
+                        "🔕 Reminder Off"
+                    },
+                    fontFamily = appFont,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (tracker.reminderEnabled) {
+                        if (primaryColor == Color.White) textColor else primaryColor
+                    } else {
+                        secondaryTextColor
+                    }
+                )
+            }
             
             Button(
                 onClick = { onEdit(tracker) },
                 colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().testTag("manage_edit_tracker_button"),
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Edit, contentDescription = null, tint = if (primaryColor == Color.White) Color.Black else Color.White)
-                    Text(fontFamily = appFont, text = "Edit Settings (Type, Color, Info)", color = if (primaryColor == Color.White) Color.Black else Color.White, fontWeight = FontWeight.Bold)
+                    Text(fontFamily = appFont, text = "Edit Settings & Reminder", color = if (primaryColor == Color.White) Color.Black else Color.White, fontWeight = FontWeight.Bold)
                 }
             }
 
@@ -511,6 +572,8 @@ fun EditTrackerSheet(
         val parts = tracker.targetDays.split(",").map { it.trim().uppercase() }.filter { it.isNotBlank() }.toSet()
         mutableStateOf(if (parts.isNotEmpty()) parts else setOf("MON", "WED", "FRI"))
     }
+    var editReminderEnabled by remember(tracker) { mutableStateOf(tracker.reminderEnabled) }
+    var editReminderTime by remember(tracker) { mutableStateOf(tracker.reminderTime) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -519,6 +582,7 @@ fun EditTrackerSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 8.dp)
                 .padding(bottom = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -782,6 +846,25 @@ fun EditTrackerSheet(
                 }
             }
             
+            // Per-Habit Reminder Control
+            PerHabitReminderCard(
+                enabled = editReminderEnabled,
+                time = editReminderTime,
+                trackerType = editType,
+                frequencyType = editFrequency,
+                customDays = editCustomDays,
+                weeklyTarget = editWeeklyTarget,
+                onEnabledChange = { editReminderEnabled = it },
+                onTimeChange = { editReminderTime = it },
+                appFont = appFont,
+                primaryColor = primaryColor,
+                textColor = textColor,
+                secondaryTextColor = secondaryTextColor,
+                borderColor = borderColor,
+                cardBgColor = cardBgColor,
+                selectedTheme = selectedTheme
+            )
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -811,19 +894,412 @@ fun EditTrackerSheet(
                                 targetDays = targetDaysString,
                                 targetCount = editTargetCount,
                                 timeOfDay = editTimeOfDay,
-                                weeklyTarget = finalWeeklyTarget
+                                weeklyTarget = finalWeeklyTarget,
+                                reminderEnabled = editReminderEnabled,
+                                reminderTime = editReminderTime
                             )
                             onDismiss()
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f).testTag("edit_tracker_save_button")
                 ) {
                     Text(fontFamily = appFont, 
                         text = "Save Changes",
                         color = if (primaryColor == Color.White) Color.Black else Color.White,
                         fontWeight = FontWeight.Bold
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PerHabitReminderCard(
+    enabled: Boolean,
+    time: String,
+    trackerType: String,
+    frequencyType: String,
+    customDays: Set<String>,
+    weeklyTarget: Int,
+    onEnabledChange: (Boolean) -> Unit,
+    onTimeChange: (String) -> Unit,
+    appFont: FontFamily,
+    primaryColor: Color,
+    textColor: Color,
+    secondaryTextColor: Color,
+    borderColor: Color,
+    cardBgColor: Color,
+    selectedTheme: String
+) {
+    val context = LocalContext.current
+    var showTimePicker by remember { mutableStateOf(false) }
+    var permissionDeniedHint by remember { mutableStateOf(false) }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            permissionDeniedHint = false
+            onEnabledChange(true)
+        } else {
+            permissionDeniedHint = true
+            onEnabledChange(false)
+        }
+    }
+
+    val isLight = ThemeStyles.isLightTheme(selectedTheme)
+    val neutralBg = if (isLight) borderColor.copy(alpha = 0.16f) else Color(0xFF161616)
+    val dayOrder = listOf("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
+    val dayLabels = mapOf(
+        "MON" to "Mon", "TUE" to "Tue", "WED" to "Wed",
+        "THU" to "Thu", "FRI" to "Fri", "SAT" to "Sat", "SUN" to "Sun"
+    )
+    val scheduleSummary = when (frequencyType) {
+        "weekdays" -> "Mon – Fri"
+        "custom_days", "weekly" -> {
+            val ordered = dayOrder.filter { it in customDays }.mapNotNull { dayLabels[it] }
+            if (ordered.isEmpty()) "Selected days" else ordered.joinToString(", ")
+        }
+        "weekly_quota", "3x_week" -> "$weeklyTarget days/wk (pauses once goal met)"
+        else -> "Every day"
+    }
+
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = if (enabled) primaryColor.copy(alpha = 0.08f) else neutralBg
+        ),
+        border = BorderStroke(
+            width = if (enabled) 1.dp else 0.5.dp,
+            color = if (enabled) primaryColor.copy(alpha = 0.45f) else borderColor
+        ),
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f).padding(end = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Notifications,
+                        contentDescription = "Habit reminder",
+                        tint = if (enabled) (if (primaryColor == Color.White) textColor else primaryColor) else secondaryTextColor,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Column {
+                        Text(
+                            text = "Habit Reminder",
+                            fontFamily = appFont,
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = textColor
+                        )
+                        Text(
+                            text = when {
+                                !enabled -> "Off · Uses global reminder if enabled"
+                                trackerType == "bad" -> "Mindful check-in · $scheduleSummary at $time"
+                                else -> "$scheduleSummary at $time"
+                            },
+                            fontFamily = appFont,
+                            fontSize = 11.sp,
+                            color = secondaryTextColor
+                        )
+                    }
+                }
+                Switch(
+                    checked = enabled,
+                    modifier = Modifier.testTag("habit_reminder_switch"),
+                    onCheckedChange = { checked ->
+                        if (checked) {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                val granted = ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.POST_NOTIFICATIONS
+                                ) == PackageManager.PERMISSION_GRANTED
+                                if (!granted) {
+                                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                } else {
+                                    permissionDeniedHint = false
+                                    onEnabledChange(true)
+                                }
+                            } else {
+                                permissionDeniedHint = false
+                                onEnabledChange(true)
+                            }
+                        } else {
+                            permissionDeniedHint = false
+                            onEnabledChange(false)
+                        }
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = if (isLight) Color.White else Color.Black,
+                        checkedTrackColor = primaryColor,
+                        uncheckedThumbColor = secondaryTextColor,
+                        uncheckedTrackColor = borderColor.copy(alpha = 0.25f)
+                    )
+                )
+            }
+
+            if (permissionDeniedHint) {
+                Text(
+                    text = "Notification permission was denied. Enable notifications for Etcha-GS in system settings to receive reminders.",
+                    fontFamily = appFont,
+                    fontSize = 11.sp,
+                    color = Color(0xFFE57373)
+                )
+            }
+
+            if (enabled) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(cardBgColor.copy(alpha = 0.85f))
+                        .border(0.5.dp, borderColor, RoundedCornerShape(10.dp))
+                        .clickable { showTimePicker = true }
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                        .testTag("habit_reminder_time_button"),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Reminder Time",
+                        fontFamily = appFont,
+                        fontSize = 13.sp,
+                        color = textColor
+                    )
+                    Text(
+                        text = "$time ⏰",
+                        fontFamily = appFont,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (primaryColor == Color.White) textColor else primaryColor
+                    )
+                }
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !ReminderManager.canScheduleExactAlarms(context)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(borderColor.copy(alpha = 0.16f))
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Exact alarm permission is off; Android may deliver alerts within a few minutes.",
+                            fontFamily = appFont,
+                            fontSize = 10.5.sp,
+                            color = secondaryTextColor,
+                            modifier = Modifier.weight(1f).padding(end = 8.dp)
+                        )
+                        TextButton(
+                            onClick = { ReminderManager.openExactAlarmSettings(context) },
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .testTag("habit_exact_alarm_settings_button")
+                        ) {
+                            Text(
+                                text = "Allow",
+                                fontFamily = appFont,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (primaryColor == Color.White) textColor else primaryColor
+                            )
+                        }
+                    }
+                }
+
+                Text(
+                    text = "Tip: If battery optimization is aggressive on your device, exempt Etcha-GS so reminders fire on time.",
+                    fontFamily = appFont,
+                    fontSize = 10.5.sp,
+                    color = secondaryTextColor
+                )
+            }
+        }
+    }
+
+    if (showTimePicker) {
+        ReminderTimePickerDialog(
+            initialTime = time,
+            onDismiss = { showTimePicker = false },
+            onConfirm = { newTime ->
+                onTimeChange(newTime)
+                showTimePicker = false
+            },
+            appFont = appFont,
+            primaryColor = primaryColor,
+            textColor = textColor,
+            secondaryTextColor = secondaryTextColor,
+            cardBgColor = cardBgColor,
+            borderColor = borderColor,
+            isLight = isLight
+        )
+    }
+}
+
+@Composable
+fun ReminderTimePickerDialog(
+    initialTime: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+    appFont: FontFamily,
+    primaryColor: Color,
+    textColor: Color,
+    secondaryTextColor: Color,
+    cardBgColor: Color,
+    borderColor: Color,
+    isLight: Boolean
+) {
+    val parsed = ReminderManager.parseTime(initialTime) ?: (21 to 0)
+    var hourIn by remember(initialTime) { mutableIntStateOf(parsed.first) }
+    var minIn by remember(initialTime) { mutableIntStateOf(parsed.second) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            color = cardBgColor,
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, borderColor),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Text(
+                    text = "Set Reminder Time",
+                    color = textColor,
+                    fontSize = 17.sp,
+                    fontFamily = appFont,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(text = "Hour (0-23)", fontSize = 10.sp, color = secondaryTextColor, fontFamily = appFont)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = { hourIn = (hourIn - 1 + 24) % 24 }) {
+                                Icon(Icons.Default.KeyboardArrowDown, "Decrease Hour", tint = secondaryTextColor)
+                            }
+                            Text(
+                                text = String.format("%02d", hourIn),
+                                fontSize = 28.sp,
+                                color = textColor,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = appFont
+                            )
+                            IconButton(onClick = { hourIn = (hourIn + 1) % 24 }) {
+                                Icon(Icons.Default.KeyboardArrowUp, "Increase Hour", tint = secondaryTextColor)
+                            }
+                        }
+                    }
+
+                    Text(
+                        text = ":",
+                        color = textColor,
+                        fontFamily = appFont,
+                        fontSize = 28.sp,
+                        modifier = Modifier.padding(horizontal = 10.dp)
+                    )
+
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(text = "Minute (0-59)", fontSize = 10.sp, color = secondaryTextColor, fontFamily = appFont)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = { minIn = (minIn - 5 + 60) % 60 }) {
+                                Icon(Icons.Default.KeyboardArrowDown, "Decrease Minute", tint = secondaryTextColor)
+                            }
+                            Text(
+                                text = String.format("%02d", minIn),
+                                fontSize = 28.sp,
+                                color = textColor,
+                                fontFamily = appFont,
+                                fontWeight = FontWeight.Bold
+                            )
+                            IconButton(onClick = { minIn = (minIn + 5) % 60 }) {
+                                Icon(Icons.Default.KeyboardArrowUp, "Increase Minute", tint = secondaryTextColor)
+                            }
+                        }
+                    }
+                }
+
+                // Quick time presets
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf("08:00", "13:00", "18:00", "21:00").forEach { preset ->
+                        val isPreset = String.format("%02d:%02d", hourIn, minIn) == preset
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 36.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isPreset) primaryColor.copy(alpha = 0.2f) else borderColor.copy(alpha = 0.2f))
+                                .border(0.5.dp, if (isPreset) primaryColor else borderColor, RoundedCornerShape(8.dp))
+                                .clickable {
+                                    val p = ReminderManager.parseTime(preset)
+                                    if (p != null) {
+                                        hourIn = p.first
+                                        minIn = p.second
+                                    }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = preset,
+                                fontFamily = appFont,
+                                fontSize = 11.5.sp,
+                                fontWeight = if (isPreset) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isPreset) (if (primaryColor == Color.White) textColor else primaryColor) else secondaryTextColor
+                            )
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TextButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(text = "Cancel", color = secondaryTextColor, fontFamily = appFont)
+                    }
+                    Button(
+                        onClick = {
+                            onConfirm(String.format("%02d:%02d", hourIn, minIn))
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = primaryColor,
+                            contentColor = if (isLight && primaryColor != Color.White) Color.White else if (primaryColor == Color.White) Color.Black else Color.White
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(text = "Set Time", fontWeight = FontWeight.Bold, fontFamily = appFont)
+                    }
                 }
             }
         }

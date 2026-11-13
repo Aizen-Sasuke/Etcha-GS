@@ -153,9 +153,9 @@ fun ThemePickerModal(
                         listOf("All", "Dark", "Light", "Special & VIP").forEach { tab ->
                             val isSelected = selectedTab == tab
                             val count = when (tab) {
-                                "Dark" -> 10
-                                "Light" -> 10
-                                "Special & VIP" -> 14
+                                "Dark" -> ThemeData.ALL_THEMES.count { it.category == "dark" }
+                                "Light" -> ThemeData.ALL_THEMES.count { it.category == "light" }
+                                "Special & VIP" -> ThemeData.ALL_THEMES.count { it.category == "special" }
                                 else -> ThemeData.ALL_THEMES.size
                             }
                             val tabTitle = when (tab) {
@@ -347,8 +347,8 @@ fun ThemeSwatchCard(
                 .clip(RoundedCornerShape(10.dp))
                 .background(theme.background)
                 .border(
-                    width = if (isSelected) 2.5.dp else if (theme.isSupporterOnly) 1.5.dp else 1.dp,
-                    color = if (isSelected) theme.primary else if (theme.isSupporterOnly) Color(0xFFFFD700).copy(alpha = 0.6f) else theme.border.copy(alpha = 0.5f),
+                    width = if (isSelected) 2.dp else 1.dp,
+                    color = if (isSelected) theme.primary else theme.border.copy(alpha = 0.5f),
                     shape = RoundedCornerShape(10.dp)
                 )
                 .clickable { onSelect() }

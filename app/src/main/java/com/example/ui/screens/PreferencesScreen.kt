@@ -21,6 +21,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -102,6 +103,8 @@ fun PreferencesScreen(
     var showArchivedHabitsSheet by remember { mutableStateOf(false) }
     var trackerToDeletePermanently by remember { mutableStateOf<com.example.ui.TrackerConfig?>(null) }
     val archivedTrackers by viewModel.archivedTrackers.collectAsState()
+    val activeTrackers by viewModel.trackers.collectAsState()
+    val customReminderCount = remember(activeTrackers) { activeTrackers.count { it.reminderEnabled } }
     val googleEmail by viewModel.googleAccountEmail.collectAsState()
     val lastBackupTime by viewModel.lastCloudBackupTime.collectAsState()
 
@@ -269,13 +272,32 @@ fun PreferencesScreen(
                                     modifier = Modifier
                                         .size(48.dp)
                                         .clip(cellShapeObj)
-                                        .background(cardBgColor)
-                                        .then(
-                                            if (cKey == "filled") {
-                                                val fillAlpha = (0.13f + (2 - 1) * 0.04f).coerceAtMost(0.28f)
-                                                Modifier.background(primaryColor.copy(alpha = fillAlpha))
-                                            } else Modifier
-                                        )
+                                        .background(primaryColor.copy(alpha = if (cKey == "filled") 0.22f else 0.15f))
+                                        .drawBehind {
+                                            val topRightRadius = (size.minDimension * 0.85f).coerceAtLeast(1f)
+                                            drawRect(
+                                                brush = androidx.compose.ui.graphics.Brush.radialGradient(
+                                                    colors = listOf(
+                                                        primaryColor.copy(alpha = 0.28f),
+                                                        primaryColor.copy(alpha = 0.10f),
+                                                        Color.Transparent
+                                                    ),
+                                                    center = androidx.compose.ui.geometry.Offset(size.width, 0f),
+                                                    radius = topRightRadius
+                                                )
+                                            )
+                                            val bottomLeftRadius = (size.minDimension * 0.65f).coerceAtLeast(1f)
+                                            drawRect(
+                                                brush = androidx.compose.ui.graphics.Brush.radialGradient(
+                                                    colors = listOf(
+                                                        primaryColor.copy(alpha = 0.16f),
+                                                        Color.Transparent
+                                                    ),
+                                                    center = androidx.compose.ui.geometry.Offset(0f, size.height),
+                                                    radius = bottomLeftRadius
+                                                )
+                                            )
+                                        }
                                         .border(if (isSelected) 2.dp else 1.dp, if (isSelected) primaryColor else neutralStroke, cellShapeObj)
                                 ) {
                                     val dotSize = 8.dp
@@ -465,7 +487,7 @@ fun PreferencesScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
+                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                             Text(
                                 text = "Daily Reminder Notifications",
                                 color = textColor,
@@ -474,7 +496,11 @@ fun PreferencesScreen(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Schedule notifications to avoid breaking streaks",
+                                text = if (customReminderCount > 0) {
+                                    "Covers active habits without custom alerts ($customReminderCount custom active)"
+                                } else {
+                                    "Global fallback alert when habits have no custom reminder"
+                                },
                                 color = secondaryTextColor,
                                 fontFamily = appFont,
                                 fontSize = 11.sp
@@ -522,7 +548,7 @@ fun PreferencesScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(text = "Scheduled Reminder Time:", color = textColor, fontSize = 13.sp, fontFamily = appFont)
+                            Text(text = "Global Reminder Time:", color = textColor, fontSize = 13.sp, fontFamily = appFont)
                             Text(
                                 text = "$reminderTime ⏰",
                                 color = textColor,
@@ -530,6 +556,42 @@ fun PreferencesScreen(
                                 fontFamily = appFont,
                                 fontWeight = FontWeight.Bold
                             )
+                        }
+                    }
+
+                    if ((remindersEnabled || customReminderCount > 0) &&
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                        !ReminderManager.canScheduleExactAlarms(context)
+                    ) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(neutralBg)
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Using approximate timing. Allow Exact Alarms for precise reminder delivery.",
+                                color = secondaryTextColor,
+                                fontSize = 11.sp,
+                                fontFamily = appFont,
+                                modifier = Modifier.weight(1f).padding(end = 8.dp)
+                            )
+                            TextButton(
+                                onClick = { ReminderManager.openExactAlarmSettings(context) },
+                                modifier = Modifier.heightIn(min = 48.dp)
+                            ) {
+                                Text(
+                                    text = "Settings",
+                                    color = if (primaryColor == Color.White) textColor else primaryColor,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = appFont
+                                )
+                            }
                         }
                     }
                 }

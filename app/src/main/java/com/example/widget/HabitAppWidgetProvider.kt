@@ -124,17 +124,15 @@ class HabitAppWidgetProvider : AppWidgetProvider() {
                 }
 
                 val todayString = LocalDate.now().toString()
-                val entries = if (activeTracker != null) {
-                    db.habitDao().getEntriesForTrackerAndDate(activeTracker.id, todayString)
-                } else emptyList()
+                val entries = db.habitDao().getEntriesForTrackerAndDate(activeTracker.id, todayString)
 
                 val totalCount = entries.sumOf { it.count }
-                val targetCount = activeTracker?.targetCount ?: 1
+                val targetCount = activeTracker.targetCount
                 val isDoneToday = totalCount >= targetCount
 
-                val isWeeklyQuota = activeTracker != null && activeTracker.frequencyType == "weekly_quota"
-                val weeklyTarget = (activeTracker?.weeklyTarget ?: 0).coerceIn(1, 7)
-                val weeklyCompletedDays = if (isWeeklyQuota && activeTracker != null) {
+                val isWeeklyQuota = activeTracker.frequencyType == "weekly_quota"
+                val weeklyTarget = activeTracker.weeklyTarget.coerceIn(1, 7)
+                val weeklyCompletedDays = if (isWeeklyQuota) {
                     val monday = LocalDate.now().with(java.time.DayOfWeek.MONDAY)
                     var count = 0
                     for (d in 0..6) {
@@ -150,13 +148,8 @@ class HabitAppWidgetProvider : AppWidgetProvider() {
 
                 for (widgetId in appWidgetIds) {
                     val views = RemoteViews(context.packageName, R.layout.widget_habit_today).apply {
-                        if (activeTracker != null) {
-                            setTextViewText(R.id.widget_habit_icon, activeTracker.icon)
-                            setTextViewText(R.id.widget_habit_title, activeTracker.title)
-                        } else {
-                            setTextViewText(R.id.widget_habit_icon, "✨")
-                            setTextViewText(R.id.widget_habit_title, "Daily Habit")
-                        }
+                        setTextViewText(R.id.widget_habit_icon, activeTracker.icon)
+                        setTextViewText(R.id.widget_habit_title, activeTracker.title)
 
                         if (isWeeklyQuota) {
                             if (isWeeklyQuotaCompleted) {

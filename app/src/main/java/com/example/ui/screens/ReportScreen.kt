@@ -70,9 +70,7 @@ fun ReportScreen(
     val textColor = ThemeStyles.getTextColor(selectedTheme)
     val secondaryTextColor = ThemeStyles.getSecondaryTextColor(selectedTheme)
 
-    val primaryColor = activeTracker.accentColor?.let {
-        try { Color(android.graphics.Color.parseColor(it)) } catch(e: Exception) { basePrimaryColor }
-    } ?: basePrimaryColor
+    val primaryColor = basePrimaryColor
 
     val scrollState = rememberScrollState()
 
@@ -418,7 +416,7 @@ fun ReportScreen(
                             borderColor = borderColor,
                             textColor = textColor,
                             secondaryTextColor = secondaryTextColor,
-                            modifier = Modifier.width(165.dp)
+                            modifier = Modifier.width(165.dp).height(104.dp)
                         )
 
                         CompactStatsCard(
@@ -430,7 +428,7 @@ fun ReportScreen(
                             borderColor = borderColor,
                             textColor = textColor,
                             secondaryTextColor = secondaryTextColor,
-                            modifier = Modifier.width(165.dp)
+                            modifier = Modifier.width(165.dp).height(104.dp)
                         )
 
                         CompactStatsCard(
@@ -442,7 +440,7 @@ fun ReportScreen(
                             borderColor = borderColor,
                             textColor = textColor,
                             secondaryTextColor = secondaryTextColor,
-                            modifier = Modifier.width(165.dp)
+                            modifier = Modifier.width(165.dp).height(104.dp)
                         )
 
                         val streakUnit = if (isWeeklyQuota) {
@@ -458,7 +456,7 @@ fun ReportScreen(
                             borderColor = borderColor,
                             textColor = textColor,
                             secondaryTextColor = secondaryTextColor,
-                            modifier = Modifier.width(165.dp)
+                            modifier = Modifier.width(165.dp).height(104.dp)
                         )
                     }
 
@@ -816,37 +814,34 @@ fun CompactStatsCard(
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp)
+                .fillMaxSize()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
                 text = title,
                 fontFamily = appFont,
-                fontSize = 11.sp,
+                fontSize = 11.5.sp,
                 fontWeight = FontWeight.Normal,
                 color = secondaryTextColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             
-            Spacer(modifier = Modifier.height(6.dp))
-            
             Text(
                 text = value,
                 fontFamily = appFont,
-                fontSize = 32.sp,
+                fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
                 color = textColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
 
-            Spacer(modifier = Modifier.height(6.dp))
-
             Text(
                 text = subtitle,
                 fontFamily = appFont,
-                color = secondaryTextColor.copy(alpha = 0.8f),
+                color = secondaryTextColor.copy(alpha = 0.85f),
                 fontSize = 10.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis

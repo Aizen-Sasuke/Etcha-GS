@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
@@ -41,21 +42,16 @@ fun MainContainer(
     val selectedFont by viewModel.selectedFont.collectAsState()
     val appFont = ThemeStyles.getSelectedFontFamily(selectedFont)
 
-    // Determine primary accent color based on theme selection
+    // Determine primary accent color strictly based on theme selection
     val basePrimaryColor = ThemeStyles.getPrimaryColor(selectedTheme, customHex)
-    val activeTracker by viewModel.activeTracker.collectAsState()
-    val accentColor = activeTracker.accentColor?.let {
-        try { Color(android.graphics.Color.parseColor(it)) } catch(e: Exception) { basePrimaryColor }
-    } ?: basePrimaryColor
-    
     val bgColor = ThemeStyles.getBackgroundColor(selectedTheme, customBgHex)
     val unselectedColor = ThemeStyles.getSecondaryTextColor(selectedTheme)
 
-    // High contrast navigation palette
+    // High contrast navigation palette using the selected theme's primary color
     val navigationBarColors = NavigationBarItemDefaults.colors(
-        selectedIconColor = accentColor,
-        selectedTextColor = accentColor,
-        indicatorColor = accentColor.copy(alpha = 0.15f),
+        selectedIconColor = basePrimaryColor,
+        selectedTextColor = basePrimaryColor,
+        indicatorColor = basePrimaryColor.copy(alpha = 0.16f),
         unselectedIconColor = unselectedColor,
         unselectedTextColor = unselectedColor
     )
@@ -63,11 +59,15 @@ fun MainContainer(
     Scaffold(
         modifier = modifier.fillMaxSize(),
         bottomBar = {
-            NavigationBar(
-                modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars),
-                containerColor = bgColor,
-                tonalElevation = 8.dp
+            Surface(
+                color = bgColor,
+                tonalElevation = 4.dp,
+                border = BorderStroke(0.5.dp, ThemeStyles.getBorderColor(selectedTheme).copy(alpha = 0.45f))
             ) {
+                NavigationBar(
+                    windowInsets = NavigationBarDefaults.windowInsets,
+                    containerColor = Color.Transparent
+                ) {
                 // Tab 1: Home
                 NavigationBarItem(
                     modifier = Modifier.testTag("nav_home"),
@@ -77,13 +77,13 @@ fun MainContainer(
                         Icon(
                             imageVector = Icons.Default.Home,
                             contentDescription = "Home",
-                            tint = if (activeTab == 0) accentColor else unselectedColor
+                            tint = if (activeTab == 0) basePrimaryColor else unselectedColor
                         )
                     },
                     label = {
                         Text(
                             text = "Home",
-                            color = if (activeTab == 0) accentColor else unselectedColor,
+                            color = if (activeTab == 0) basePrimaryColor else unselectedColor,
                             fontSize = 11.sp,
                             fontWeight = if (activeTab == 0) FontWeight.Bold else FontWeight.Normal,
                             fontFamily = appFont
@@ -101,13 +101,13 @@ fun MainContainer(
                         Icon(
                             imageVector = Icons.Default.DateRange,
                             contentDescription = "Analytics",
-                            tint = if (activeTab == 1) accentColor else unselectedColor
+                            tint = if (activeTab == 1) basePrimaryColor else unselectedColor
                         )
                     },
                     label = {
                         Text(
                             text = "Analytics",
-                            color = if (activeTab == 1) accentColor else unselectedColor,
+                            color = if (activeTab == 1) basePrimaryColor else unselectedColor,
                             fontSize = 11.sp,
                             fontWeight = if (activeTab == 1) FontWeight.Bold else FontWeight.Normal,
                             fontFamily = appFont
@@ -125,13 +125,13 @@ fun MainContainer(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.List,
                             contentDescription = "History",
-                            tint = if (activeTab == 2) accentColor else unselectedColor
+                            tint = if (activeTab == 2) basePrimaryColor else unselectedColor
                         )
                     },
                     label = {
                         Text(
                             text = "History",
-                            color = if (activeTab == 2) accentColor else unselectedColor,
+                            color = if (activeTab == 2) basePrimaryColor else unselectedColor,
                             fontSize = 11.sp,
                             fontWeight = if (activeTab == 2) FontWeight.Bold else FontWeight.Normal,
                             fontFamily = appFont
@@ -149,13 +149,13 @@ fun MainContainer(
                         Icon(
                             imageVector = Icons.Default.Settings,
                             contentDescription = "Settings",
-                            tint = if (activeTab == 3) accentColor else unselectedColor
+                            tint = if (activeTab == 3) basePrimaryColor else unselectedColor
                         )
                     },
                     label = {
                         Text(
                             text = "Settings",
-                            color = if (activeTab == 3) accentColor else unselectedColor,
+                            color = if (activeTab == 3) basePrimaryColor else unselectedColor,
                             fontSize = 11.sp,
                             fontWeight = if (activeTab == 3) FontWeight.Bold else FontWeight.Normal,
                             fontFamily = appFont
@@ -164,6 +164,7 @@ fun MainContainer(
                     colors = navigationBarColors
                 )
             }
+        }
         },
         containerColor = bgColor
     ) { innerPadding ->
@@ -180,13 +181,5 @@ fun MainContainer(
                 3 -> PreferencesScreen(viewModel = viewModel)
             }
         }
-    }
-
-    val hasSeenOnboarding by viewModel.hasSeenOnboarding.collectAsState()
-    if (!hasSeenOnboarding) {
-        OnboardingModal(
-            viewModel = viewModel,
-            onDismiss = { viewModel.setHasSeenOnboarding(true) }
-        )
     }
 }

@@ -16,5 +16,7 @@ data class Tracker(
     val targetCount: Int = 1,
     val timeOfDay: String = "anytime", // "anytime", "morning", "afternoon", "evening"
     val weeklyTarget: Int = 0,
-    val isArchived: Boolean = false
+    val isArchived: Boolean = false,
+    val reminderEnabled: Boolean = false,
+    val reminderTime: String = "21:00"
 )

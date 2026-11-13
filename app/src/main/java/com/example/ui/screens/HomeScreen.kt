@@ -75,13 +75,17 @@ fun HomeScreen(
 
     val today = remember(dayRolloverHour) { viewModel.getEffectiveToday() }
     val baseMonth = remember { YearMonth.now() }
-    val initialPage = remember { Int.MAX_VALUE / 2 }
+    val initialPage = remember { 1200 }
     val pagerState = androidx.compose.foundation.pager.rememberPagerState(
         initialPage = initialPage,
-        pageCount = { Int.MAX_VALUE }
+        pageCount = { 2400 }
     )
     val coroutineScope = rememberCoroutineScope()
-    var currentYearMonth by remember { mutableStateOf(YearMonth.now()) }
+    val currentYearMonth by remember(baseMonth, initialPage) {
+        derivedStateOf {
+            baseMonth.plusMonths((pagerState.currentPage - initialPage).toLong())
+        }
+    }
 
     val habitTitle by viewModel.habitTitle.collectAsState()
     val habitIcon by viewModel.habitIcon.collectAsState()
@@ -156,18 +160,8 @@ fun HomeScreen(
     }
 
     val selectedMonthEntriesCount = remember(currentYearMonth, completionsByDate) {
-        completionsByDate.filterKeys {
-            try {
-                val date = LocalDate.parse(it)
-                date.year == currentYearMonth.year && date.monthValue == currentYearMonth.monthValue
-            } catch (e: Exception) {
-                false
-            }
-        }.values.flatten().sumOf { it.count }
-    }
-
-    LaunchedEffect(pagerState.currentPage) {
-        currentYearMonth = baseMonth.plusMonths((pagerState.currentPage - initialPage).toLong())
+        val monthPrefix = currentYearMonth.toString()
+        completionsByDate.filterKeys { it.startsWith(monthPrefix) }.values.flatten().sumOf { it.count }
     }
 
     Box(
@@ -274,7 +268,6 @@ fun HomeScreen(
                 coroutineScope.launch {
                     pagerState.scrollToPage(initialPage + monthsDiff)
                 }
-                currentYearMonth = selectedYM
             },
             onQuickCheckIn = { dateStr, mood -> triggerQuickCheckIn(dateStr, mood) }
         )

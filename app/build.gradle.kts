@@ -14,8 +14,8 @@ android {
     applicationId = "com.aistudio.habittracker.rcyxsz"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    versionCode = 3
+    versionName = "1.2"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -88,10 +88,10 @@ dependencies {
   implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.androidx.lifecycle.viewmodel.compose)
   implementation(libs.androidx.navigation.compose)
-  implementation("androidx.compose.ui:ui-text-google-fonts:1.7.0")
+  // implementation("androidx.compose.ui:ui-text-google-fonts:1.7.0")
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.room.runtime)
-  implementation("androidx.work:work-runtime-ktx:2.9.0")
+  // implementation("androidx.work:work-runtime-ktx:2.9.0")
   implementation("sh.calvin.reorderable:reorderable:2.1.1")
   // implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
@@ -120,5 +120,5 @@ dependencies {
   debugImplementation(libs.androidx.compose.ui.test.manifest)
   debugImplementation(libs.androidx.compose.ui.tooling)
   "ksp"(libs.androidx.room.compiler)
-  "ksp"(libs.moshi.kotlin.codegen)
+  // "ksp"(libs.moshi.kotlin.codegen)
 }

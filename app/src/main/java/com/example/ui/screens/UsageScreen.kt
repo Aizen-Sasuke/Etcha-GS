@@ -62,17 +62,7 @@ fun UsageScreen(
     val textColor = ThemeStyles.getTextColor(selectedTheme)
     val secondaryTextColor = ThemeStyles.getSecondaryTextColor(selectedTheme)
     val basePrimaryColor = ThemeStyles.getPrimaryColor(selectedTheme, customHex)
-    val primaryColor = remember(activeTracker.accentColor, basePrimaryColor) {
-        if (activeTracker.accentColor != null) {
-            try {
-                Color(android.graphics.Color.parseColor(activeTracker.accentColor))
-            } catch (e: Exception) {
-                basePrimaryColor
-            }
-        } else {
-            basePrimaryColor
-        }
-    }
+    val primaryColor = basePrimaryColor
 
     val today = remember { LocalDate.now() }
     val clipboardManager = LocalClipboardManager.current
@@ -194,7 +184,7 @@ fun UsageScreen(
                             fontFamily = appFont,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (ThemeStyles.isThemeDark(selectedTheme)) Color.Black else Color.White
+                            color = if (primaryColor == Color.White) Color.Black else Color.White
                         )
                     }
                 }
@@ -217,6 +207,7 @@ fun UsageScreen(
 
                     Box(
                         modifier = Modifier
+                            .height(36.dp)
                             .clip(RoundedCornerShape(12.dp))
                             .background(if (isSelected) tAccent.copy(alpha = 0.2f) else cardBgColor)
                             .border(
@@ -225,7 +216,7 @@ fun UsageScreen(
                                 shape = RoundedCornerShape(12.dp)
                             )
                             .clickable { viewModel.selectTracker(tracker.id) }
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                            .padding(horizontal = 12.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -272,7 +263,7 @@ fun UsageScreen(
                     .padding(vertical = 4.dp)
             )
 
-            // Date Range & Tag Filter Chips
+            // Date Range & Tag Filter Chips — exactly 32.dp height for uniform vertical symmetry
             val rangeScroll = rememberScrollState()
             Row(
                 modifier = Modifier
@@ -286,11 +277,13 @@ fun UsageScreen(
                     val isSelected = selectedRangeTab == tab
                     Box(
                         modifier = Modifier
+                            .height(32.dp)
                             .clip(RoundedCornerShape(10.dp))
                             .background(if (isSelected) primaryColor.copy(alpha = 0.15f) else Color.Transparent)
                             .border(if (isSelected) 1.dp else 0.5.dp, if (isSelected) primaryColor else borderColor, RoundedCornerShape(10.dp))
                             .clickable { selectedRangeTab = tab }
-                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                            .padding(horizontal = 10.dp),
+                        contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = tab,
@@ -302,14 +295,16 @@ fun UsageScreen(
                     }
                 }
 
-                // Notes Only Filter Chip
+                // Notes Only Filter Chip — exactly 32.dp height
                 Box(
                     modifier = Modifier
+                        .height(32.dp)
                         .clip(RoundedCornerShape(10.dp))
                         .background(if (filterNotesOnly) primaryColor.copy(alpha = 0.2f) else Color.Transparent)
                         .border(if (filterNotesOnly) 1.dp else 0.5.dp, if (filterNotesOnly) primaryColor else borderColor, RoundedCornerShape(10.dp))
                         .clickable { filterNotesOnly = !filterNotesOnly }
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .padding(horizontal = 10.dp),
+                    contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = "📝 Notes Only",
@@ -320,20 +315,21 @@ fun UsageScreen(
                     )
                 }
 
-                // Mood Filter Chips
+                // Mood Filter Chips — exactly 32.dp x 32.dp
                 listOf("😊", "🔥", "⚡", "🧘", "🌧️").forEach { mood ->
                     val isMoodActive = selectedMoodFilter == mood
                     Box(
                         modifier = Modifier
+                            .size(32.dp)
                             .clip(RoundedCornerShape(10.dp))
                             .background(if (isMoodActive) primaryColor.copy(alpha = 0.25f) else Color.Transparent)
                             .border(if (isMoodActive) 1.dp else 0.5.dp, if (isMoodActive) primaryColor else borderColor, RoundedCornerShape(10.dp))
                             .clickable {
                                 selectedMoodFilter = if (isMoodActive) null else mood
-                            }
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                            },
+                        contentAlignment = Alignment.Center
                     ) {
-                        Text(text = mood, fontSize = 11.sp)
+                        Text(text = mood, fontSize = 12.sp)
                     }
                 }
             }
