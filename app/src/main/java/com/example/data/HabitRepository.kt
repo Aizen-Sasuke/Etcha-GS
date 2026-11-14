@@ -14,6 +14,7 @@ class HabitRepository(
     suspend fun getAllTrackersList(): List<Tracker> = trackerDao.getAllTrackersList()
 
     fun getEntriesForTracker(trackerId: String): Flow<List<HabitEntry>> = habitDao.getEntriesForTrackerFlow(trackerId)
+    fun getEntriesFromDate(startDateString: String): Flow<List<HabitEntry>> = habitDao.getEntriesFromDateFlow(startDateString)
 
     suspend fun insertEntry(entry: HabitEntry) = habitDao.insertEntry(entry)
     suspend fun updateEntry(entry: HabitEntry) = habitDao.updateEntry(entry)

@@ -25,6 +25,8 @@ import com.example.data.HabitEntry
 import com.example.ui.HabitStats
 import com.example.ui.HabitViewModel
 import com.example.ui.ThemeStyles
+import com.example.ui.TodayDashboardState
+import com.example.ui.TodayHabitItem
 import com.example.ui.TrackerConfig
 import com.example.ui.components.ConfettiCelebration
 import java.time.LocalDate
@@ -46,6 +48,7 @@ class HomeScreenDialogState {
     var trackerToDelete by mutableStateOf<TrackerConfig?>(null)
     var trackerToManage by mutableStateOf<TrackerConfig?>(null)
     var trackerToEdit by mutableStateOf<TrackerConfig?>(null)
+    var detailItemForTodaySheet by mutableStateOf<TodayHabitItem?>(null)
 }
 
 data class HomeThemeConfig(
@@ -64,7 +67,9 @@ data class HomeThemeConfig(
 @Composable
 fun HomeScreen(
     viewModel: HabitViewModel,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onNavigateToReports: (String) -> Unit = {},
+    onNavigateToHistory: (String) -> Unit = {}
 ) {
     val dayRolloverHour by viewModel.dayRolloverHour.collectAsState()
     val celebrationsEnabled by viewModel.celebrationsEnabled.collectAsState()
@@ -122,10 +127,12 @@ fun HomeScreen(
     val trackers by viewModel.trackers.collectAsState()
     val archivedTrackers by viewModel.archivedTrackers.collectAsState()
     val selectedTrackerId by viewModel.selectedTrackerId.collectAsState()
+    val todayDashboard by viewModel.todayDashboard.collectAsState()
 
-    val triggerQuickCheckIn: (String, String?) -> Unit = { dateStr, mood ->
-        val isBad = activeTracker.type == "bad"
-        viewModel.quickIncrement(dateStr, mood) { record ->
+    val triggerQuickCheckInForTracker: (String, String, String?) -> Unit = { trackerId, dateStr, mood ->
+        val targetTracker = trackers.find { it.id == trackerId } ?: activeTracker
+        val isBad = targetTracker.type == "bad"
+        viewModel.quickIncrementForTracker(trackerId, dateStr, mood) { record ->
             if (isBad) {
                 hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             } else {
@@ -136,12 +143,12 @@ fun HomeScreen(
             }
 
             val message = if (isBad) {
-                "Slip logged for ${activeTracker.icon} ${activeTracker.title}"
+                "Slip logged for ${targetTracker.icon} ${targetTracker.title}"
             } else {
-                if (activeTracker.targetCount > 1) {
-                    "Logged ${activeTracker.icon} ${activeTracker.title} (${record.newCount}/${activeTracker.targetCount})"
+                if (targetTracker.targetCount > 1) {
+                    "Logged ${targetTracker.icon} ${targetTracker.title} (${record.newCount}/${targetTracker.targetCount})"
                 } else {
-                    "Logged ${activeTracker.icon} ${activeTracker.title}"
+                    "Logged ${targetTracker.icon} ${targetTracker.title}"
                 }
             }
 
@@ -187,6 +194,7 @@ fun HomeScreen(
             archivedCount = archivedTrackers.size,
             selectedRoutineFilter = selectedRoutineFilter,
             today = today,
+            todayDashboard = todayDashboard,
             completionsByDate = completionsByDate,
             selectedMoodTag = selectedMoodTag,
             baseMonth = baseMonth,
@@ -206,14 +214,22 @@ fun HomeScreen(
             onAddTrackerClick = { dialogState.showAddTrackerDialog = true },
             onOpenArchivedClick = { dialogState.showArchivedHabitsSheet = true },
             onReorder = { viewModel.reorderTrackers(it) },
+            onDashboardQuickIncrement = { targetTrackerId ->
+                val dashToday = todayDashboard.effectiveToday.toString()
+                triggerQuickCheckInForTracker(targetTrackerId, dashToday, null)
+            },
+            onDashboardOpenDetail = { item ->
+                viewModel.selectTracker(item.tracker.id)
+                dialogState.detailItemForTodaySheet = item
+            },
             onMoodTagSelect = { selectedMoodTag = it },
-            onQuickCheckIn = { triggerQuickCheckIn(today.toString(), selectedMoodTag) },
+            onQuickCheckIn = { triggerQuickCheckInForTracker(activeTracker.id, today.toString(), selectedMoodTag) },
             onOpenJournal = {
                 dialogState.journalTargetDate = today
                 dialogState.showDailyJournalDialog = true
             },
             onMonthPickerClick = { dialogState.showMonthPicker = true },
-            onCellClick = { dateStr -> triggerQuickCheckIn(dateStr, null) },
+            onCellClick = { dateStr -> triggerQuickCheckInForTracker(activeTracker.id, dateStr, null) },
             onCellLongClick = { date -> dialogState.selectedDateForDetails = date }
         )
 
@@ -262,14 +278,18 @@ fun HomeScreen(
             archivedTrackers = archivedTrackers,
             completionsByDate = completionsByDate,
             currentYearMonth = currentYearMonth,
-            today = today,
+            today = todayDashboard.effectiveToday,
             onYearMonthSelected = { selectedYM ->
                 val monthsDiff = ChronoUnit.MONTHS.between(baseMonth, selectedYM).toInt()
                 coroutineScope.launch {
                     pagerState.scrollToPage(initialPage + monthsDiff)
                 }
             },
-            onQuickCheckIn = { dateStr, mood -> triggerQuickCheckIn(dateStr, mood) }
+            onQuickCheckIn = { targetId, dateStr, mood ->
+                triggerQuickCheckInForTracker(targetId, dateStr, mood)
+            },
+            onNavigateToHistory = onNavigateToHistory,
+            onNavigateToReports = onNavigateToReports
         )
     }
 }
@@ -286,6 +306,7 @@ private fun HomeScreenContent(
     archivedCount: Int,
     selectedRoutineFilter: String,
     today: LocalDate,
+    todayDashboard: TodayDashboardState,
     completionsByDate: Map<String, List<HabitEntry>>,
     selectedMoodTag: String?,
     baseMonth: YearMonth,
@@ -301,6 +322,8 @@ private fun HomeScreenContent(
     onAddTrackerClick: () -> Unit,
     onOpenArchivedClick: () -> Unit,
     onReorder: (List<TrackerConfig>) -> Unit,
+    onDashboardQuickIncrement: (String) -> Unit,
+    onDashboardOpenDetail: (TodayHabitItem) -> Unit,
     onMoodTagSelect: (String?) -> Unit,
     onQuickCheckIn: () -> Unit,
     onOpenJournal: () -> Unit,
@@ -356,7 +379,20 @@ private fun HomeScreenContent(
 
         Spacer(modifier = Modifier.height(4.dp))
 
-        // 3. Today's Status & Action Card
+        // 2b. Unified Today Dashboard (All active habits progress, due/attention, quota, rest, bad-habit clean status)
+        UnifiedTodayDashboardCard(
+            dashboard = todayDashboard,
+            selectedTrackerId = selectedTrackerId,
+            selectedRoutineFilter = selectedRoutineFilter,
+            themeConfig = themeConfig,
+            onQuickIncrement = onDashboardQuickIncrement,
+            onOpenHabitDetail = onDashboardOpenDetail,
+            onAddTrackerClick = onAddTrackerClick
+        )
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // 3. Today's Status & Action Card (Focused habit)
         val todayDateString = remember(today) { today.toString() }
         val todayEntries = completionsByDate[todayDateString] ?: emptyList()
         val todayCount = todayEntries.sumOf { it.count }
@@ -418,7 +454,9 @@ private fun HomeScreenDialogsHost(
     currentYearMonth: YearMonth,
     today: LocalDate,
     onYearMonthSelected: (YearMonth) -> Unit,
-    onQuickCheckIn: (String, String?) -> Unit
+    onQuickCheckIn: (String, String, String?) -> Unit,
+    onNavigateToHistory: (String) -> Unit,
+    onNavigateToReports: (String) -> Unit
 ) {
     AddTrackerSheet(
         visible = dialogState.showAddTrackerDialog,
@@ -558,7 +596,7 @@ private fun HomeScreenDialogsHost(
         onDismiss = { dialogState.selectedDateForDetails = null },
         onDeleteEntry = { entry -> viewModel.deleteEntry(entry) },
         onClearDate = { dateStr -> viewModel.clearEntriesForDate(dateStr) },
-        onQuickLog = { dateStr -> onQuickCheckIn(dateStr, null) },
+        onQuickLog = { dateStr -> onQuickCheckIn(activeTracker.id, dateStr, null) },
         onOpenJournal = { date ->
             dialogState.journalTargetDate = date
             dialogState.showDailyJournalDialog = true
@@ -570,6 +608,24 @@ private fun HomeScreenDialogsHost(
         cardBgColor = themeConfig.cardBgColor,
         borderColor = themeConfig.borderColor,
         selectedTheme = themeConfig.selectedTheme
+    )
+
+    TodayHabitDetailSheet(
+        item = dialogState.detailItemForTodaySheet,
+        themeConfig = themeConfig,
+        onDismiss = { dialogState.detailItemForTodaySheet = null },
+        onFocusOnCalendar = { trackerId -> viewModel.selectTracker(trackerId) },
+        onQuickIncrement = { trackerId -> onQuickCheckIn(trackerId, today.toString(), null) },
+        onOpenJournal = { trackerId ->
+            viewModel.selectTracker(trackerId)
+            dialogState.journalTargetDate = today
+            dialogState.showDailyJournalDialog = true
+        },
+        onOpenEdit = { item ->
+            dialogState.trackerToEdit = item.tracker
+        },
+        onViewHistory = onNavigateToHistory,
+        onViewReports = onNavigateToReports
     )
 
     if (dialogState.showDonateDialog) {

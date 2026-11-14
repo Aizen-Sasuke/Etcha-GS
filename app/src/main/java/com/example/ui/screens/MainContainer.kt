@@ -175,7 +175,17 @@ fun MainContainer(
             color = bgColor
         ) {
             when (activeTab) {
-                0 -> HomeScreen(viewModel = viewModel)
+                0 -> HomeScreen(
+                    viewModel = viewModel,
+                    onNavigateToReports = { trackerId ->
+                        viewModel.selectReportTracker(trackerId)
+                        activeTab = 1
+                    },
+                    onNavigateToHistory = { trackerId ->
+                        viewModel.selectTracker(trackerId)
+                        activeTab = 2
+                    }
+                )
                 1 -> ReportScreen(viewModel = viewModel)
                 2 -> UsageScreen(viewModel = viewModel)
                 3 -> PreferencesScreen(viewModel = viewModel)

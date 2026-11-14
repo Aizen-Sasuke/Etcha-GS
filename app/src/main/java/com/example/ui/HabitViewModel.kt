@@ -367,6 +367,28 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
         calculateStats(list, freezeActive, freezeHist, tracker)
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HabitStats())
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val recentWeekEntriesFlow: Flow<List<HabitEntry>> = rawPreferencesFlow
+        .map { prefs -> prefs["day_rollover_hour"]?.toIntOrNull() ?: 0 }
+        .distinctUntilChanged()
+        .flatMapLatest { rolloverHour ->
+            val effectiveToday = ReminderManager.getEffectiveToday(rolloverHour)
+            val minDate = effectiveToday.with(java.time.DayOfWeek.MONDAY).minusDays(1).toString()
+            repository.getEntriesFromDate(minDate)
+        }
+
+    val todayDashboard: StateFlow<TodayDashboardState> = combine(
+        trackers,
+        recentWeekEntriesFlow,
+        rawPreferencesFlow
+    ) { activeTrackers, weekEntries, prefs ->
+        TodayDashboardCalculator.build(
+            trackers = activeTrackers,
+            recentEntries = weekEntries,
+            preferences = prefs
+        )
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TodayDashboardState())
+
     // Tracker management actions
     fun selectTracker(id: String) {
         viewModelScope.launch {
@@ -570,29 +592,43 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
         moodTag: String? = null,
         onLogged: ((QuickCheckInRecord) -> Unit)? = null
     ) {
+        quickIncrementForTracker(
+            trackerId = selectedTrackerId.value,
+            dateString = dateString,
+            moodTag = moodTag,
+            onLogged = onLogged
+        )
+    }
+
+    fun quickIncrementForTracker(
+        trackerId: String,
+        dateString: String,
+        moodTag: String? = null,
+        onLogged: ((QuickCheckInRecord) -> Unit)? = null
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
-            val currentId = selectedTrackerId.value
-            val targetTracker = repository.getAllTrackersList().find { it.id == currentId }
+            initJob.join()
+            val targetTracker = repository.getAllTrackersList().find { it.id == trackerId }
             if (targetTracker != null && targetTracker.isArchived) {
                 return@launch // Disallow check-in on archived tracker
             }
-            val existing = repository.getEntriesForTrackerAndDate(currentId, dateString)
+            val existing = repository.getEntriesForTrackerAndDate(trackerId, dateString)
             val formattedMood = moodTag?.let { "[MOOD:$it]" }
             val token = System.nanoTime()
             val record: QuickCheckInRecord
 
             if (existing.isEmpty()) {
                 val newEntry = HabitEntry(
-                    dateString = dateString, 
-                    count = 1, 
-                    trackerId = currentId,
+                    dateString = dateString,
+                    count = 1,
+                    trackerId = trackerId,
                     notes = formattedMood
                 )
                 repository.insertEntry(newEntry)
-                val inserted = repository.getEntriesForTrackerAndDate(currentId, dateString).lastOrNull()
+                val inserted = repository.getEntriesForTrackerAndDate(trackerId, dateString).lastOrNull()
                 record = QuickCheckInRecord(
                     token = token,
-                    trackerId = currentId,
+                    trackerId = trackerId,
                     dateString = dateString,
                     previousCount = 0,
                     newCount = 1,
@@ -612,7 +648,7 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
                 repository.insertEntry(last.copy(count = newCount, notes = updatedNotes))
                 record = QuickCheckInRecord(
                     token = token,
-                    trackerId = currentId,
+                    trackerId = trackerId,
                     dateString = dateString,
                     previousCount = last.count,
                     newCount = newCount,

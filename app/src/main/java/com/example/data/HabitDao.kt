@@ -11,6 +11,9 @@ interface HabitDao {
     @Query("SELECT * FROM habit_entries WHERE trackerId = :trackerId ORDER BY timestamp DESC")
     fun getEntriesForTrackerFlow(trackerId: String): Flow<List<HabitEntry>>
 
+    @Query("SELECT * FROM habit_entries WHERE dateString >= :startDateString ORDER BY dateString DESC, timestamp DESC")
+    fun getEntriesFromDateFlow(startDateString: String): Flow<List<HabitEntry>>
+
     @Query("SELECT * FROM habit_entries WHERE trackerId = :trackerId AND dateString = :dateString ORDER BY timestamp ASC")
     suspend fun getEntriesForTrackerAndDate(trackerId: String, dateString: String): List<HabitEntry>
 
