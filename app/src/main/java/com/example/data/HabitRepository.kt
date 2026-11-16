@@ -51,13 +51,49 @@ class HabitRepository(
                 // Delete existing entries and trackers to prevent orphan entries and duplicates
                 habitDao.deleteAllHabitEntries()
                 trackerDao.deleteAllTrackers()
-                trackerDao.insertTrackers(trackers)
+
+                val knownIds = trackers.map { it.id }.toMutableSet()
+                var nextOrder = (trackers.maxOfOrNull { it.sortOrder } ?: -1) + 1
+                val extraTrackers = mutableListOf<Tracker>()
+                for (entry in entries) {
+                    if (entry.trackerId !in knownIds) {
+                        knownIds.add(entry.trackerId)
+                        extraTrackers.add(
+                            Tracker(
+                                id = entry.trackerId,
+                                title = entry.trackerId.replace('_', ' ').replaceFirstChar { it.uppercase() },
+                                icon = "⭐",
+                                sortOrder = nextOrder++
+                            )
+                        )
+                    }
+                }
+                trackerDao.insertTrackers(trackers + extraTrackers)
             } else {
                 habitDao.deleteAllHabitEntries()
+                val existingIds = trackerDao.getAllTrackersList().map { it.id }.toMutableSet()
+                val missingTrackers = mutableListOf<Tracker>()
+                var nextOrder = existingIds.size
+                for (entry in entries) {
+                    if (entry.trackerId !in existingIds) {
+                        existingIds.add(entry.trackerId)
+                        missingTrackers.add(
+                            Tracker(
+                                id = entry.trackerId,
+                                title = entry.trackerId.replace('_', ' ').replaceFirstChar { it.uppercase() },
+                                icon = "⭐",
+                                sortOrder = nextOrder++
+                            )
+                        )
+                    }
+                }
+                if (missingTrackers.isNotEmpty()) {
+                    trackerDao.insertTrackers(missingTrackers)
+                }
             }
 
             if (entries.isNotEmpty()) {
-                habitDao.insertEntries(entries)
+                habitDao.insertEntries(entries.map { it.copy(id = 0) })
             }
 
             if (preferences.isNotEmpty()) {
@@ -67,6 +103,77 @@ class HabitRepository(
                     .map { PreferenceEntry(it.key, it.value) }
                 if (prefEntries.isNotEmpty()) {
                     habitDao.insertPreferences(prefEntries)
+                }
+            }
+        }
+    }
+
+    /**
+     * Merges imported trackers, entries, and missing preferences non-destructively into existing data.
+     * Ensures every referenced trackerId exists before inserting entries and deduplicates by (trackerId, dateString).
+     */
+    suspend fun mergeDatabaseTransaction(
+        trackers: List<Tracker>,
+        entries: List<HabitEntry>,
+        preferences: Map<String, String>
+    ) {
+        appDatabase.withTransaction {
+            val existingTrackers = trackerDao.getAllTrackersList()
+            val knownIds = existingTrackers.map { it.id }.toMutableSet()
+            var nextSortOrder = (existingTrackers.maxOfOrNull { it.sortOrder } ?: -1) + 1
+            val trackersToInsert = mutableListOf<Tracker>()
+
+            for (t in trackers) {
+                if (t.id !in knownIds) {
+                    knownIds.add(t.id)
+                    trackersToInsert.add(t.copy(sortOrder = nextSortOrder++))
+                }
+            }
+
+            for (entry in entries) {
+                if (entry.trackerId !in knownIds) {
+                    knownIds.add(entry.trackerId)
+                    trackersToInsert.add(
+                        Tracker(
+                            id = entry.trackerId,
+                            title = entry.trackerId.replace('_', ' ').replaceFirstChar { it.uppercase() },
+                            icon = "⭐",
+                            sortOrder = nextSortOrder++
+                        )
+                    )
+                }
+            }
+
+            if (trackersToInsert.isNotEmpty()) {
+                trackerDao.insertTrackers(trackersToInsert)
+            }
+
+            for (entry in entries) {
+                val existing = habitDao.getEntriesForTrackerAndDate(entry.trackerId, entry.dateString)
+                if (existing.isEmpty()) {
+                    habitDao.insertEntry(entry.copy(id = 0))
+                } else {
+                    val first = existing.first()
+                    val mergedNotes = when {
+                        entry.notes.isNullOrBlank() -> first.notes
+                        first.notes.isNullOrBlank() -> entry.notes
+                        first.notes == entry.notes -> first.notes
+                        else -> entry.notes
+                    }
+                    habitDao.updateEntry(
+                        first.copy(
+                            count = maxOf(first.count, entry.count),
+                            notes = mergedNotes,
+                            timestamp = maxOf(first.timestamp, entry.timestamp)
+                        )
+                    )
+                }
+            }
+
+            for ((key, value) in preferences) {
+                if (key == "cloud_backup_history") continue
+                if (habitDao.getPreferenceValue(key) == null) {
+                    habitDao.insertPreference(PreferenceEntry(key, value))
                 }
             }
         }

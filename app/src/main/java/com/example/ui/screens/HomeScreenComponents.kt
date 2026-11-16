@@ -3,6 +3,10 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -18,6 +22,7 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.platform.testTag
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -28,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -42,6 +48,11 @@ import com.example.data.HabitEntry
 import com.example.ui.HabitStats
 import com.example.ui.ThemeStyles
 import com.example.ui.TrackerConfig
+import com.example.ui.components.AnimatedNumberText
+import com.example.ui.components.MotionSpecs
+import com.example.ui.components.recessedWell
+import com.example.ui.components.springPressScale
+import com.example.ui.components.surface3DCard
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
@@ -87,6 +98,7 @@ fun generateCalendarCells(yearMonth: YearMonth): List<CalendarCell> {
     return cells
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun HomeHeaderRow(
     habitIcon: String,
@@ -98,6 +110,7 @@ fun HomeHeaderRow(
     textColor: Color,
     secondaryTextColor: Color,
     appFont: FontFamily,
+    showSupporterBadge: Boolean = false,
     onFreezeClick: () -> Unit
 ) {
     Row(
@@ -111,33 +124,72 @@ fun HomeHeaderRow(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.weight(1f).padding(end = 12.dp)
         ) {
+            val isLight = !ThemeStyles.isLightColor(textColor)
             Box(
                 modifier = Modifier
                     .size(44.dp)
+                    .springPressScale(0.92f)
+                    .surface3DCard(
+                        shape = RoundedCornerShape(14.dp),
+                        isLight = isLight,
+                        primaryColor = primaryColor,
+                        isGlass = false,
+                        elevationDp = 4.dp
+                    )
                     .clip(RoundedCornerShape(14.dp))
                     .background(primaryColor.copy(alpha = 0.12f))
                     .border(1.dp, primaryColor.copy(alpha = 0.35f), RoundedCornerShape(14.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = habitIcon,
-                    fontSize = 22.sp
-                )
+                AnimatedContent(
+                    targetState = habitIcon,
+                    transitionSpec = {
+                        (scaleIn(MotionSpecs.BouncyPopSpring, initialScale = 0.72f) + fadeIn(tween(140))) togetherWith
+                            (scaleOut(tween(110), targetScale = 0.72f) + fadeOut(tween(110)))
+                    },
+                    label = "header_icon_pop"
+                ) { iconChar ->
+                    Text(
+                        text = iconChar,
+                        fontSize = 22.sp
+                    )
+                }
             }
             Spacer(modifier = Modifier.width(10.dp))
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.Center
             ) {
-                Text(
-                    text = habitTitle,
-                    fontFamily = appFont,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp,
-                    color = textColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = habitTitle,
+                        fontFamily = appFont,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 20.sp,
+                        color = textColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (showSupporterBadge) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(primaryColor.copy(alpha = 0.16f))
+                                .border(0.5.dp, primaryColor.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                .testTag("supporter_emblem_badge")
+                        ) {
+                            Text(
+                                text = "⭐",
+                                fontSize = 10.sp
+                            )
+                        }
+                    }
+                }
                 Text(
                     fontFamily = appFont,
                     text = when (activeTracker.timeOfDay) {
@@ -154,7 +206,7 @@ fun HomeHeaderRow(
             }
         }
 
-        // Streak Badge Pill — height exactly 44.dp to match habit icon symmetrically
+        // Streak Badge Pill — adaptive heightIn(min = 44.dp) to match habit icon cleanly across font scales
         val isFrozen = freezeDate != null
         val streakText = if (activeTracker.type == "bad") {
             "🛡️ ${stats.currentStreak}d clean"
@@ -164,24 +216,207 @@ fun HomeHeaderRow(
             if (isFrozen) "🧊 ${stats.currentStreak}d" else "🔥 ${stats.currentStreak}d"
         }
 
+        var previousStreak by remember { mutableIntStateOf(stats.currentStreak) }
+        var streakBurst by remember { mutableStateOf(false) }
+        LaunchedEffect(stats.currentStreak) {
+            if (stats.currentStreak > previousStreak) {
+                streakBurst = true
+                kotlinx.coroutines.delay(220)
+                streakBurst = false
+            }
+            previousStreak = stats.currentStreak
+        }
+        val streakPillScale by animateFloatAsState(
+            targetValue = if (streakBurst) 1.09f else 1f,
+            animationSpec = MotionSpecs.BouncyPopSpring,
+            label = "streak_pill_scale"
+        )
+
+        val isLightBadge = !ThemeStyles.isLightColor(textColor)
         Box(
             modifier = Modifier
-                .height(44.dp)
+                .scale(streakPillScale)
+                .springPressScale(0.93f)
+                .heightIn(min = 44.dp)
+                .surface3DCard(
+                    shape = RoundedCornerShape(14.dp),
+                    isLight = isLightBadge,
+                    primaryColor = primaryColor,
+                    isGlass = false,
+                    elevationDp = 4.dp
+                )
                 .clip(RoundedCornerShape(14.dp))
                 .background(primaryColor.copy(alpha = if (isFrozen) 0.28f else 0.14f))
                 .border(1.dp, primaryColor.copy(alpha = if (isFrozen) 0.65f else 0.35f), RoundedCornerShape(14.dp))
                 .clickable { onFreezeClick() }
-                .padding(horizontal = 14.dp),
+                .padding(horizontal = 14.dp, vertical = 8.dp)
+                .testTag("home_freeze_badge"),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = streakText,
-                color = if (primaryColor == Color.White) textColor else primaryColor,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = appFont
-            )
+            AnimatedContent(
+                targetState = streakText,
+                transitionSpec = {
+                    (fadeIn(tween(160)) + scaleIn(MotionSpecs.BouncyPopSpring, initialScale = 0.88f)) togetherWith
+                        (fadeOut(tween(110)) + scaleOut(targetScale = 0.88f))
+                },
+                label = "streak_badge_text"
+            ) { label ->
+                Text(
+                    text = label,
+                    color = if (primaryColor == Color.White) textColor else primaryColor,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = appFont,
+                    maxLines = 1
+                )
+            }
         }
+    }
+}
+
+@Composable
+fun DemoTrackerBannerCard(
+    themeConfig: HomeThemeConfig,
+    onDismiss: () -> Unit,
+    onClearDemo: () -> Unit
+) {
+    val accentText = if (themeConfig.primaryColor == Color.White) themeConfig.textColor else themeConfig.primaryColor
+    val onAccent = if (ThemeStyles.isLightColor(themeConfig.primaryColor)) Color.Black else Color.White
+
+    val isLight = !ThemeStyles.isLightColor(themeConfig.textColor)
+    val isGlass = ThemeStyles.isGlassTheme(themeConfig.selectedTheme)
+    Card(
+        colors = CardDefaults.cardColors(containerColor = themeConfig.cardBgColor),
+        border = ThemeStyles.getGlassBorderStroke(themeConfig.selectedTheme),
+        shape = DesignTokens.CardShape,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp)
+            .surface3DCard(
+                shape = DesignTokens.CardShape,
+                isLight = isLight,
+                primaryColor = themeConfig.primaryColor,
+                isGlass = isGlass,
+                elevationDp = 6.dp
+            )
+            .testTag("demo_tracker_banner")
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(DesignTokens.CardPadding),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(themeConfig.primaryColor.copy(alpha = 0.16f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(text = "🌱", fontSize = 18.sp)
+                }
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text(
+                        text = "Sample Demo Tracker Loaded",
+                        fontFamily = themeConfig.appFont,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.5.sp,
+                        color = themeConfig.textColor
+                    )
+                    Text(
+                        text = "\"Morning Walk\" is preloaded with 45 days of organic logs, natural rest gaps, moods & notes so you can explore charts and the heatmap right away.",
+                        fontFamily = themeConfig.appFont,
+                        fontSize = 11.5.sp,
+                        lineHeight = 16.sp,
+                        color = themeConfig.secondaryTextColor
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Max),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onClearDemo,
+                    shape = DesignTokens.ControlShape,
+                    border = BorderStroke(0.8.dp, themeConfig.borderColor),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .heightIn(min = 44.dp)
+                        .springPressScale(0.95f)
+                        .testTag("demo_clear_button")
+                ) {
+                    Text(
+                        text = "Clear Demo Data",
+                        fontFamily = themeConfig.appFont,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = themeConfig.textColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Button(
+                    onClick = onDismiss,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = themeConfig.primaryColor,
+                        contentColor = onAccent
+                    ),
+                    shape = DesignTokens.ControlShape,
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .heightIn(min = 44.dp)
+                        .springPressScale(0.95f)
+                        .testTag("demo_dismiss_button")
+                ) {
+                    Text(
+                        text = "Got It",
+                        fontFamily = themeConfig.appFont,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (themeConfig.primaryColor == Color.White) Color.Black else onAccent,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Pure helper to safely reorder trackers by their stable string IDs, ignoring clicks/drops on
+ * non-habit header/trailing items in the LazyRow.
+ */
+fun reorderTrackersByKey(
+    current: List<TrackerConfig>,
+    fromKey: Any?,
+    toKey: Any?
+): List<TrackerConfig> {
+    val fromId = fromKey as? String ?: return current
+    val toId = toKey as? String ?: return current
+    val fromIdx = current.indexOfFirst { it.id == fromId }
+    val toIdx = current.indexOfFirst { it.id == toId }
+    if (fromIdx == -1 || toIdx == -1 || fromIdx == toIdx) return current
+    return current.toMutableList().apply {
+        add(toIdx, removeAt(fromIdx))
     }
 }
 
@@ -207,9 +442,7 @@ fun HomeHabitBar(
     val lazyListState = rememberLazyListState()
     var currentTrackers by remember(trackers) { mutableStateOf(trackers) }
     val reorderableState = rememberReorderableLazyListState(lazyListState) { from, to ->
-        currentTrackers = currentTrackers.toMutableList().apply {
-            add(to.index, removeAt(from.index))
-        }
+        currentTrackers = reorderTrackersByKey(currentTrackers, from.key, to.key)
     }
     LaunchedEffect(reorderableState.isAnyItemDragging) {
         if (!reorderableState.isAnyItemDragging && currentTrackers != trackers) {
@@ -222,7 +455,7 @@ fun HomeHabitBar(
         else currentTrackers.filter { it.timeOfDay == selectedRoutineFilter }
     }
 
-    // All items in this bar have an exact uniform height of 38.dp for symmetry
+    // All items in this bar have uniform visual styling and >= 40dp accessible height
     LazyRow(
         state = lazyListState,
         modifier = Modifier
@@ -231,8 +464,9 @@ fun HomeHabitBar(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Routine Quick Filter Pill — exactly 38.dp height
-        item {
+        // Routine Quick Filter Pill
+        item(key = "routine_filter_pill") {
+            val isLightBar = !ThemeStyles.isLightColor(textColor)
             val routineIcons = mapOf(
                 "all" to "✨ All",
                 "morning" to "🌅 Morning",
@@ -241,7 +475,15 @@ fun HomeHabitBar(
             )
             Box(
                 modifier = Modifier
-                    .height(38.dp)
+                    .heightIn(min = 40.dp)
+                    .springPressScale(0.94f)
+                    .surface3DCard(
+                        shape = RoundedCornerShape(14.dp),
+                        isLight = isLightBar,
+                        primaryColor = primaryColor,
+                        isGlass = false,
+                        elevationDp = if (selectedRoutineFilter != "all") 4.dp else 2.dp
+                    )
                     .clip(RoundedCornerShape(14.dp))
                     .background(if (selectedRoutineFilter != "all") primaryColor.copy(alpha = 0.2f) else cardBgColor)
                     .border(0.5.dp, if (selectedRoutineFilter != "all") primaryColor.copy(alpha = 0.7f) else borderColor, RoundedCornerShape(14.dp))
@@ -254,31 +496,59 @@ fun HomeHabitBar(
                         }
                         onFilterChange(next)
                     }
-                    .padding(horizontal = 12.dp),
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = routineIcons[selectedRoutineFilter] ?: "✨ All",
-                    fontFamily = appFont,
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (selectedRoutineFilter != "all") (if (primaryColor == Color.White) textColor else primaryColor) else secondaryTextColor
-                )
+                AnimatedContent(
+                    targetState = routineIcons[selectedRoutineFilter] ?: "✨ All",
+                    transitionSpec = {
+                        (fadeIn(tween(150)) + scaleIn(MotionSpecs.BouncyPopSpring, initialScale = 0.90f)) togetherWith
+                            fadeOut(tween(100))
+                    },
+                    label = "routine_filter_anim"
+                ) { txt ->
+                    Text(
+                        text = txt,
+                        fontFamily = appFont,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (selectedRoutineFilter != "all") (if (primaryColor == Color.White) textColor else primaryColor) else secondaryTextColor,
+                        maxLines = 1
+                    )
+                }
             }
         }
 
-        // Habit Chips — exactly 38.dp height
+        // Habit Chips
         items(displayTrackers, key = { it.id }) { tracker ->
             ReorderableItem(reorderableState, key = tracker.id) {
                 val isSelected = tracker.id == selectedTrackerId
+                val chipScale by animateFloatAsState(
+                    targetValue = if (isSelected) 1.03f else 1f,
+                    animationSpec = MotionSpecs.BouncyPopSpring,
+                    label = "tracker_chip_scale_${tracker.id}"
+                )
+                val chipBg by animateColorAsState(
+                    targetValue = if (isSelected) primaryColor.copy(alpha = 0.18f) else cardBgColor,
+                    animationSpec = tween(180),
+                    label = "tracker_chip_bg_${tracker.id}"
+                )
+                val isLightChip = !ThemeStyles.isLightColor(textColor)
                 Box(
                     modifier = Modifier
-                        .height(38.dp)
+                        .scale(chipScale)
+                        .springPressScale(0.95f)
+                        .heightIn(min = 40.dp)
                         .longPressDraggableHandle()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(
-                            if (isSelected) primaryColor.copy(alpha = 0.18f) else cardBgColor
+                        .surface3DCard(
+                            shape = RoundedCornerShape(14.dp),
+                            isLight = isLightChip,
+                            primaryColor = primaryColor,
+                            isGlass = false,
+                            elevationDp = if (isSelected) 5.dp else 2.dp
                         )
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(chipBg)
                         .border(
                             width = if (isSelected) 1.5.dp else 0.5.dp,
                             color = if (isSelected) primaryColor.copy(alpha = 0.65f) else borderColor,
@@ -288,7 +558,7 @@ fun HomeHabitBar(
                             onClick = { onSelectTracker(tracker.id) },
                             onLongClick = { onLongClickTracker(tracker) }
                         )
-                        .padding(horizontal = 12.dp),
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Row(
@@ -301,7 +571,8 @@ fun HomeHabitBar(
                             color = if (isSelected) (if (primaryColor == Color.White) textColor else primaryColor) else secondaryTextColor,
                             fontSize = 12.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                            fontFamily = appFont
+                            fontFamily = appFont,
+                            maxLines = 1
                         )
                         if (tracker.reminderEnabled) {
                             Icon(
@@ -316,11 +587,13 @@ fun HomeHabitBar(
             }
         }
 
-        // Add Tracker Button — exactly 38.dp x 38.dp for symmetry
-        item {
+        // Add Tracker Button — explicit key + uniform >=40.dp size
+        item(key = "add_tracker_btn") {
             Box(
                 modifier = Modifier
-                    .size(38.dp)
+                    .springPressScale(0.91f)
+                    .defaultMinSize(minWidth = 40.dp, minHeight = 40.dp)
+                    .size(40.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .background(cardBgColor)
                     .border(0.5.dp, borderColor, RoundedCornerShape(14.dp))
@@ -336,17 +609,18 @@ fun HomeHabitBar(
             }
         }
 
-        // Archived Habits shortcut badge — exactly 38.dp height
+        // Archived Habits shortcut badge — explicit key + adaptive height
         if (archivedCount > 0) {
-            item {
+            item(key = "archived_badge") {
                 Box(
                     modifier = Modifier
-                        .height(38.dp)
+                        .springPressScale(0.94f)
+                        .heightIn(min = 40.dp)
                         .clip(RoundedCornerShape(14.dp))
                         .background(borderColor.copy(alpha = 0.2f))
                         .border(0.5.dp, borderColor, RoundedCornerShape(14.dp))
                         .clickable { onOpenArchivedClick() }
-                        .padding(horizontal = 12.dp),
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Row(
@@ -359,7 +633,8 @@ fun HomeHabitBar(
                             fontFamily = appFont,
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Medium,
-                            color = secondaryTextColor
+                            color = secondaryTextColor,
+                            maxLines = 1
                         )
                     }
                 }
@@ -408,20 +683,42 @@ fun TodayStatusCard(
     val isWeekQuotaCompleted = isWeeklyQuota && currentWeekCompletedDays >= weeklyTarget
     val isCardHighlight = if (isWeeklyQuota) isWeekQuotaCompleted else isTodayDone
 
+    val animatedCardContainer by animateColorAsState(
+        targetValue = if (isCardHighlight) primaryColor.copy(alpha = 0.12f) else cardBgColor,
+        animationSpec = tween(durationMillis = 240),
+        label = "today_card_container"
+    )
+    val animatedCardBorder by animateColorAsState(
+        targetValue = if (isCardHighlight) primaryColor.copy(alpha = 0.55f) else borderColor,
+        animationSpec = tween(durationMillis = 240),
+        label = "today_card_border"
+    )
+    val cardStroke = if (ThemeStyles.isGlassTheme(selectedTheme) && !isCardHighlight) {
+        ThemeStyles.getGlassBorderStroke(selectedTheme)
+    } else {
+        BorderStroke(width = if (isCardHighlight) 1.dp else 0.5.dp, color = animatedCardBorder)
+    }
+
+    val isLight = !ThemeStyles.isLightColor(textColor)
+    val isGlass = ThemeStyles.isGlassTheme(selectedTheme)
     Card(
         colors = CardDefaults.cardColors(
-            containerColor = if (isCardHighlight) primaryColor.copy(alpha = 0.12f) else cardBgColor
+            containerColor = animatedCardContainer
         ),
-        border = BorderStroke(
-            width = if (isCardHighlight) 1.dp else 0.5.dp,
-            color = if (isCardHighlight) primaryColor.copy(alpha = 0.50f) else borderColor
-        ),
-        shape = RoundedCornerShape(18.dp),
+        border = cardStroke,
+        shape = DesignTokens.CardShape,
         modifier = Modifier
             .fillMaxWidth()
             .padding(bottom = 6.dp)
+            .surface3DCard(
+                shape = DesignTokens.CardShape,
+                isLight = isLight,
+                primaryColor = primaryColor,
+                isGlass = isGlass,
+                elevationDp = 6.dp
+            )
     ) {
-        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(modifier = Modifier.padding(DesignTokens.CardPadding), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -453,12 +750,21 @@ fun TodayStatusCard(
                             ),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = if (isCardHighlight) (if (isBadHabit) "✕" else "✓") else activeTracker.icon,
-                            fontSize = if (isCardHighlight) 20.sp else 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isCardHighlight) (if (isBadHabit) Color(0xFFEF5350) else primaryColor) else textColor
-                        )
+                        AnimatedContent(
+                            targetState = if (isCardHighlight) (if (isBadHabit) "✕" else "✓") else activeTracker.icon,
+                            transitionSpec = {
+                                (scaleIn(MotionSpecs.BouncyPopSpring, initialScale = 0.6f) + fadeIn(tween(150))) togetherWith
+                                    (scaleOut(tween(100), targetScale = 0.6f) + fadeOut(tween(100)))
+                            },
+                            label = "today_status_badge"
+                        ) { iconText ->
+                            Text(
+                                text = iconText,
+                                fontSize = if (isCardHighlight) 20.sp else 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isCardHighlight) (if (isBadHabit) Color(0xFFEF5350) else primaryColor) else textColor
+                            )
+                        }
                     }
 
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -523,7 +829,7 @@ fun TodayStatusCard(
                     }
                 }
 
-                // Quick Action Check-in Button — height 40.dp with centered text
+                // Quick Action Check-in Button — min height 40.dp, spring press & rebound
                 Button(
                     onClick = onQuickCheckIn,
                     colors = ButtonDefaults.buttonColors(
@@ -542,22 +848,43 @@ fun TodayStatusCard(
                             if (primaryColor == Color.White) Color.Black else Color.White
                         }
                     ),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.height(40.dp),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp)
+                    shape = DesignTokens.ControlShape,
+                    modifier = Modifier
+                        .springPressScale(0.93f)
+                        .widthIn(min = 88.dp)
+                        .heightIn(min = DesignTokens.ActionButtonHeight),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
                 ) {
-                    Text(
-                        text = buttonText,
-                        fontFamily = appFont,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    AnimatedContent(
+                        targetState = buttonText,
+                        transitionSpec = {
+                            (fadeIn(tween(150)) + scaleIn(MotionSpecs.BouncyPopSpring, initialScale = 0.9f)) togetherWith
+                                fadeOut(tween(100))
+                        },
+                        label = "checkin_btn_label"
+                    ) { txt ->
+                        Text(
+                            text = txt,
+                            fontFamily = appFont,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
+                        )
+                    }
                 }
             }
 
             // Multi-count target progress (e.g. 5/8 glasses of water)
             if (activeTracker.targetCount > 1) {
                 val targetProgress = (todayCount.toFloat() / activeTracker.targetCount.toFloat()).coerceIn(0f, 1f)
+                val animatedTargetProgress by animateFloatAsState(
+                    targetValue = targetProgress,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    ),
+                    label = "today_target_progress"
+                )
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -579,10 +906,11 @@ fun TodayStatusCard(
                         )
                     }
                     LinearProgressIndicator(
-                        progress = { targetProgress },
+                        progress = { animatedTargetProgress },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(6.dp)
+                            .recessedWell(RoundedCornerShape(3.dp), isLight = isLight)
                             .clip(RoundedCornerShape(3.dp)),
                         color = primaryColor,
                         trackColor = borderColor.copy(alpha = 0.3f)
@@ -590,25 +918,27 @@ fun TodayStatusCard(
                 }
             }
 
-            // Habit Strength Score & Mood Selector Row — all elements exact 32.dp height
-            Row(
+            // Habit Strength Score, Journal & Mood Selector — FlowRow prevents horizontal squeeze/clipping
+            @OptIn(ExperimentalLayoutApi::class)
+            FlowRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 2.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Habit Strength Pill — exactly 32.dp height
+                    // Habit Strength Pill — dynamic height with generous padding
                     Box(
                         modifier = Modifier
-                            .height(32.dp)
+                            .heightIn(min = 32.dp)
+                            .recessedWell(RoundedCornerShape(10.dp), isLight = isLight)
                             .clip(RoundedCornerShape(10.dp))
-                            .background(if (ThemeStyles.isLightTheme(selectedTheme)) borderColor.copy(alpha = 0.25f) else Color(0xFF1B1D24))
-                            .padding(horizontal = 10.dp),
+                            .background(if (isLight) borderColor.copy(alpha = 0.25f) else Color(0xFF1B1D24))
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -616,19 +946,22 @@ fun TodayStatusCard(
                             fontFamily = appFont,
                             fontSize = 10.5.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = secondaryTextColor
+                            color = secondaryTextColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
 
-                    // Journal Quick Button — exactly 32.dp height
+                    // Journal Quick Button — dynamic height with crisp padding
                     Box(
                         modifier = Modifier
-                            .height(32.dp)
+                            .springPressScale(0.94f)
+                            .heightIn(min = 32.dp)
                             .clip(RoundedCornerShape(10.dp))
                             .background(primaryColor.copy(alpha = 0.12f))
                             .border(0.5.dp, primaryColor.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
                             .clickable { onOpenJournal() }
-                            .padding(horizontal = 10.dp),
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Row(
@@ -641,13 +974,14 @@ fun TodayStatusCard(
                                 fontFamily = appFont,
                                 fontSize = 10.5.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (primaryColor == Color.White) textColor else primaryColor
+                                color = if (primaryColor == Color.White) textColor else primaryColor,
+                                maxLines = 1
                             )
                         }
                     }
                 }
 
-                // Mood selection chips — each exactly 32.dp x 32.dp
+                // Mood selection chips — symmetric 32.dp x 32.dp targets with spring pop
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -655,11 +989,23 @@ fun TodayStatusCard(
                     val moods = listOf("😊", "⚡", "🧘", "🌧️", "🎯")
                     moods.forEach { mood ->
                         val isMoodSelected = selectedMoodTag == mood
+                        val moodScale by animateFloatAsState(
+                            targetValue = if (isMoodSelected) 1.12f else 1f,
+                            animationSpec = MotionSpecs.BouncyPopSpring,
+                            label = "mood_scale_$mood"
+                        )
+                        val moodBg by animateColorAsState(
+                            targetValue = if (isMoodSelected) primaryColor.copy(alpha = 0.25f) else Color.Transparent,
+                            animationSpec = tween(160),
+                            label = "mood_bg_$mood"
+                        )
                         Box(
                             modifier = Modifier
+                                .scale(moodScale)
+                                .springPressScale(0.88f)
                                 .size(32.dp)
                                 .clip(CircleShape)
-                                .background(if (isMoodSelected) primaryColor.copy(alpha = 0.25f) else Color.Transparent)
+                                .background(moodBg)
                                 .border(if (isMoodSelected) 1.dp else 0.dp, primaryColor, CircleShape)
                                 .clickable { onMoodTagSelect(mood) },
                             contentAlignment = Alignment.Center
@@ -689,6 +1035,7 @@ fun HomeCalendarSection(
     textColor: Color,
     secondaryTextColor: Color,
     appFont: FontFamily,
+    cellShapeKey: String = "rounded_square",
     cellShape: Shape,
     checkmarkStyleName: String,
     selectedTheme: String,
@@ -699,25 +1046,27 @@ fun HomeCalendarSection(
     var calendarViewMode by remember { mutableStateOf("month") } // "month" or "week"
     val coroutineScope = rememberCoroutineScope()
 
-    // Month navigation and counters row — all elements exact 36.dp height
-    Row(
+    // Month navigation and counters row — responsive FlowRow so long month names & controls never clip
+    @OptIn(ExperimentalLayoutApi::class)
+    FlowRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 4.dp, bottom = 6.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         // Left: Month Header & Chevron buttons
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             Box(
                 modifier = Modifier
-                    .height(36.dp)
+                    .springPressScale(0.95f)
+                    .heightIn(min = 36.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .clickable { onMonthPickerClick() }
-                    .padding(horizontal = 6.dp),
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Row(
@@ -725,13 +1074,24 @@ fun HomeCalendarSection(
                     horizontalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                     val monthName = currentYearMonth.month.getDisplayName(JavaTextStyle.FULL, Locale.US)
-                    Text(
-                        text = "$monthName ${currentYearMonth.year}",
-                        fontSize = 19.sp,
-                        color = textColor,
-                        fontFamily = appFont,
-                        fontWeight = FontWeight.Bold
-                    )
+                    AnimatedContent(
+                        targetState = "$monthName ${currentYearMonth.year}",
+                        transitionSpec = {
+                            (fadeIn(tween(170)) + slideInVertically { it / 4 }) togetherWith
+                                (fadeOut(tween(120)) + slideOutVertically { -it / 4 })
+                        },
+                        label = "month_header_title"
+                    ) { titleText ->
+                        Text(
+                            text = titleText,
+                            fontSize = 18.sp,
+                            color = textColor,
+                            fontFamily = appFont,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                     Icon(
                         imageVector = Icons.Default.ArrowDropDown,
                         contentDescription = "Change Month",
@@ -747,7 +1107,9 @@ fun HomeCalendarSection(
                         pagerState.animateScrollToPage(pagerState.currentPage - 1)
                     }
                 },
-                modifier = Modifier.size(36.dp)
+                modifier = Modifier
+                    .size(40.dp)
+                    .springPressScale(0.88f)
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
@@ -763,7 +1125,9 @@ fun HomeCalendarSection(
                         pagerState.animateScrollToPage(pagerState.currentPage + 1)
                     }
                 },
-                modifier = Modifier.size(36.dp)
+                modifier = Modifier
+                    .size(40.dp)
+                    .springPressScale(0.88f)
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
@@ -774,28 +1138,42 @@ fun HomeCalendarSection(
             }
         }
 
-        // Right: View toggle [ Month | Week ] & Completions badge — exact 36.dp height
+        // Right: View toggle [ Month | Week ] & Completions badge — adaptive heightIn(min = 36.dp)
+        val isLightCal = !ThemeStyles.isLightColor(textColor)
+        val isGlassCal = ThemeStyles.isGlassTheme(selectedTheme)
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            // View mode toggle — exactly 36.dp height
             Row(
                 modifier = Modifier
-                    .height(36.dp)
+                    .heightIn(min = 36.dp)
+                    .height(IntrinsicSize.Max)
+                    .recessedWell(RoundedCornerShape(10.dp), isLight = isLightCal)
                     .clip(RoundedCornerShape(10.dp))
                     .background(cardBgColor)
                     .border(0.5.dp, borderColor, RoundedCornerShape(10.dp))
                     .padding(2.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                val monthPillBg by animateColorAsState(
+                    targetValue = if (calendarViewMode == "month") primaryColor.copy(alpha = 0.22f) else Color.Transparent,
+                    animationSpec = tween(180),
+                    label = "cal_mode_month_bg"
+                )
+                val weekPillBg by animateColorAsState(
+                    targetValue = if (calendarViewMode == "week") primaryColor.copy(alpha = 0.22f) else Color.Transparent,
+                    animationSpec = tween(180),
+                    label = "cal_mode_week_bg"
+                )
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
+                        .springPressScale(0.94f)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(if (calendarViewMode == "month") primaryColor.copy(alpha = 0.2f) else Color.Transparent)
+                        .background(monthPillBg)
                         .clickable { calendarViewMode = "month" }
-                        .padding(horizontal = 9.dp),
+                        .padding(horizontal = 9.dp, vertical = 6.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -803,16 +1181,18 @@ fun HomeCalendarSection(
                         fontFamily = appFont,
                         fontSize = 11.5.sp,
                         fontWeight = if (calendarViewMode == "month") FontWeight.Bold else FontWeight.Normal,
-                        color = if (calendarViewMode == "month") (if (primaryColor == Color.White) textColor else primaryColor) else secondaryTextColor
+                        color = if (calendarViewMode == "month") (if (primaryColor == Color.White) textColor else primaryColor) else secondaryTextColor,
+                        maxLines = 1
                     )
                 }
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
+                        .springPressScale(0.94f)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(if (calendarViewMode == "week") primaryColor.copy(alpha = 0.2f) else Color.Transparent)
+                        .background(weekPillBg)
                         .clickable { calendarViewMode = "week" }
-                        .padding(horizontal = 9.dp),
+                        .padding(horizontal = 9.dp, vertical = 6.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -820,125 +1200,147 @@ fun HomeCalendarSection(
                         fontFamily = appFont,
                         fontSize = 11.5.sp,
                         fontWeight = if (calendarViewMode == "week") FontWeight.Bold else FontWeight.Normal,
-                        color = if (calendarViewMode == "week") (if (primaryColor == Color.White) textColor else primaryColor) else secondaryTextColor
+                        color = if (calendarViewMode == "week") (if (primaryColor == Color.White) textColor else primaryColor) else secondaryTextColor,
+                        maxLines = 1
                     )
                 }
             }
 
-            // Month logs badge — exactly 36.dp height
+            // Month logs badge
             Box(
                 modifier = Modifier
-                    .height(36.dp)
+                    .springPressScale(0.94f)
+                    .heightIn(min = 36.dp)
+                    .surface3DCard(
+                        shape = RoundedCornerShape(10.dp),
+                        isLight = isLightCal,
+                        primaryColor = primaryColor,
+                        isGlass = isGlassCal,
+                        elevationDp = 3.dp
+                    )
                     .clip(RoundedCornerShape(10.dp))
                     .background(cardBgColor)
                     .border(0.5.dp, borderColor, RoundedCornerShape(10.dp))
                     .clickable { onMonthPickerClick() }
-                    .padding(horizontal = 10.dp),
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text(
-                        text = "$selectedMonthEntriesCount",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
+                    AnimatedNumberText(
+                        value = selectedMonthEntriesCount,
                         color = if (primaryColor == Color.White) textColor else primaryColor,
-                        fontFamily = appFont
+                        fontSize = 13.sp,
+                        fontFamily = appFont,
+                        fontWeight = FontWeight.Bold
                     )
                     Text(
                         text = "logs",
                         fontSize = 11.sp,
                         color = secondaryTextColor,
-                        fontFamily = appFont
+                        fontFamily = appFont,
+                        maxLines = 1
                     )
                 }
             }
         }
     }
 
-    if (calendarViewMode == "week") {
-        CalendarWeekView(
-            today = today,
-            activeTracker = activeTracker,
-            completionsByDate = completionsByDate,
-            primaryColor = primaryColor,
-            cardBgColor = cardBgColor,
-            borderColor = borderColor,
-            textColor = textColor,
-            secondaryTextColor = secondaryTextColor,
-            appFont = appFont,
-            cellShape = cellShape,
-            checkmarkStyleName = checkmarkStyleName,
-            selectedTheme = selectedTheme,
-            onCellClick = onCellClick,
-            onCellLongClick = onCellLongClick
-        )
-    } else {
-        // Weekday Headers
-        val daysOfWeekHeader = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            daysOfWeekHeader.forEach { day ->
-                Text(
-                    text = day,
-                    color = secondaryTextColor,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                    textAlign = TextAlign.Center,
-                    fontFamily = appFont,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
+    AnimatedContent(
+        targetState = calendarViewMode,
+        transitionSpec = {
+            (fadeIn(tween(200)) + scaleIn(MotionSpecs.SnappyFloatSpring, initialScale = 0.96f)) togetherWith
+                (fadeOut(tween(150)) + scaleOut(targetScale = 0.96f))
+        },
+        label = "calendar_view_mode_transition"
+    ) { mode ->
+        if (mode == "week") {
+            CalendarWeekView(
+                today = today,
+                activeTracker = activeTracker,
+                completionsByDate = completionsByDate,
+                primaryColor = primaryColor,
+                cardBgColor = cardBgColor,
+                borderColor = borderColor,
+                textColor = textColor,
+                secondaryTextColor = secondaryTextColor,
+                appFont = appFont,
+                cellShape = cellShape,
+                checkmarkStyleName = checkmarkStyleName,
+                selectedTheme = selectedTheme,
+                onCellClick = onCellClick,
+                onCellLongClick = onCellLongClick
+            )
+        } else {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // Weekday Headers
+                val daysOfWeekHeader = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    daysOfWeekHeader.forEach { day ->
+                        Text(
+                            text = day,
+                            color = secondaryTextColor,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            textAlign = TextAlign.Center,
+                            fontFamily = appFont,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
 
-        HorizontalDivider(color = borderColor.copy(alpha = 0.5f), thickness = 0.5.dp, modifier = Modifier.padding(vertical = 4.dp))
+                HorizontalDivider(color = borderColor.copy(alpha = 0.5f), thickness = 0.5.dp, modifier = Modifier.padding(vertical = 4.dp))
 
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier
-                .fillMaxWidth()
-                .wrapContentHeight()
-        ) { page ->
-            val pageMonth = baseMonth.plusMonths((page - initialPage).toLong())
-            val cells = remember(pageMonth) { generateCalendarCells(pageMonth) }
-            val rows = remember(cells) { cells.chunked(7) }
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .wrapContentHeight()
+                ) { page ->
+                    val pageMonth = baseMonth.plusMonths((page - initialPage).toLong())
+                    val cells = remember(pageMonth) { generateCalendarCells(pageMonth) }
+                    val rows = remember(cells) { cells.chunked(7) }
 
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .wrapContentHeight(),
-                verticalArrangement = Arrangement.spacedBy(3.dp)
-            ) {
-                rows.forEach { rowCells ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .wrapContentHeight(),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        rowCells.forEach { cell ->
-                            CalendarDayCell(
-                                cell = cell,
-                                today = today,
-                                activeTracker = activeTracker,
-                                completionsByDate = completionsByDate,
-                                primaryColor = primaryColor,
-                                cardBgColor = cardBgColor,
-                                borderColor = borderColor,
-                                textColor = textColor,
-                                secondaryTextColor = secondaryTextColor,
-                                appFont = appFont,
-                                cellShape = cellShape,
-                                checkmarkStyleName = checkmarkStyleName,
-                                selectedTheme = selectedTheme,
-                                modifier = Modifier.weight(1f),
-                                onClick = { onCellClick(cell.dateString) },
-                                onLongClick = { onCellLongClick(cell.date) }
-                            )
+                        rows.forEach { rowCells ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                rowCells.forEach { cell ->
+                                    CalendarDayCell(
+                                        cell = cell,
+                                        today = today,
+                                        activeTracker = activeTracker,
+                                        completionsByDate = completionsByDate,
+                                        primaryColor = primaryColor,
+                                        cardBgColor = cardBgColor,
+                                        borderColor = borderColor,
+                                        textColor = textColor,
+                                        secondaryTextColor = secondaryTextColor,
+                                        appFont = appFont,
+                                        cellShapeKey = cellShapeKey,
+                                        cellShape = cellShape,
+                                        checkmarkStyleName = checkmarkStyleName,
+                                        selectedTheme = selectedTheme,
+                                        modifier = Modifier.weight(1f),
+                                        onClick = { onCellClick(cell.dateString) },
+                                        onLongClick = { onCellLongClick(cell.date) }
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -989,17 +1391,36 @@ fun CalendarWeekView(
             val isToday = date == today
             val isFuture = date.isAfter(today)
 
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = if (isDone) primaryColor.copy(alpha = 0.12f) else cardBgColor
-                ),
-                border = BorderStroke(
+            val cardContainer by animateColorAsState(
+                targetValue = if (isDone) primaryColor.copy(alpha = 0.12f) else cardBgColor,
+                animationSpec = tween(220),
+                label = "week_card_bg_${dateStr}"
+            )
+            val weekCardStroke = if (ThemeStyles.isGlassTheme(selectedTheme) && !isToday && !isDone) {
+                ThemeStyles.getGlassBorderStroke(selectedTheme)
+            } else {
+                BorderStroke(
                     width = if (isToday) 1.5.dp else if (isDone) 1.dp else 0.5.dp,
                     color = if (isToday) primaryColor else if (isDone) primaryColor.copy(alpha = 0.5f) else borderColor
-                ),
+                )
+            }
+
+            val isLightWeek = !ThemeStyles.isLightColor(textColor)
+            val isGlassWeek = ThemeStyles.isGlassTheme(selectedTheme)
+            Card(
+                colors = CardDefaults.cardColors(containerColor = cardContainer),
+                border = weekCardStroke,
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
                     .fillMaxWidth()
+                    .springPressScale(0.97f)
+                    .surface3DCard(
+                        shape = RoundedCornerShape(12.dp),
+                        isLight = isLightWeek,
+                        primaryColor = primaryColor,
+                        isGlass = isGlassWeek,
+                        elevationDp = if (isDone || isToday) 5.dp else 3.dp
+                    )
                     .clickable { onCellClick(dateStr) }
             ) {
                 Row(
@@ -1050,7 +1471,10 @@ fun CalendarWeekView(
                                     fontFamily = appFont,
                                     fontWeight = if (isToday) FontWeight.Bold else FontWeight.SemiBold,
                                     fontSize = 13.sp,
-                                    color = if (isFuture) secondaryTextColor.copy(alpha = 0.6f) else textColor
+                                    color = if (isFuture) secondaryTextColor.copy(alpha = 0.6f) else textColor,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
                                 )
                                 if (isToday) {
                                     Box(
@@ -1115,49 +1539,21 @@ fun CalendarWeekView(
                         }
                     }
 
-                    // Right action / checkmark box — exactly 34.dp to match left box symmetrically
-                    if (isDone) {
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(cellShape)
-                                .background(primaryColor.copy(alpha = 0.2f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = "Done",
-                                tint = if (primaryColor == Color.White) textColor else primaryColor,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    } else if (isPartial) {
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(cellShape)
-                                .background(primaryColor.copy(alpha = 0.1f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "$totalCount/$targetCount",
-                                fontFamily = appFont,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 11.sp,
-                                color = primaryColor
-                            )
-                        }
-                    } else if (!isFuture) {
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(cellShape)
-                                .border(1.dp, borderColor, cellShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("+", color = secondaryTextColor, fontSize = 15.sp)
-                        }
-                    }
+                    // Right action / checkmark badge — 34.dp matching left date badge & active style
+                    CalendarWeekBadge(
+                        isDone = isDone,
+                        isPartial = isPartial,
+                        isFuture = isFuture,
+                        totalCount = totalCount,
+                        targetCount = targetCount,
+                        cellShape = cellShape,
+                        checkmarkStyleName = checkmarkStyleName,
+                        primaryColor = primaryColor,
+                        textColor = textColor,
+                        secondaryTextColor = secondaryTextColor,
+                        borderColor = borderColor,
+                        appFont = appFont
+                    )
                 }
             }
         }
@@ -1176,6 +1572,7 @@ fun CalendarDayCell(
     textColor: Color,
     secondaryTextColor: Color,
     appFont: FontFamily,
+    cellShapeKey: String = "rounded_square",
     cellShape: Shape,
     checkmarkStyleName: String,
     selectedTheme: String,
@@ -1203,64 +1600,72 @@ fun CalendarDayCell(
         isPartial -> 1.dp
         else -> 0.5.dp
     }
-    val cellBorderColor = when {
-        isToday -> primaryColor.copy(alpha = 0.90f)
-        isCompleted -> primaryColor.copy(alpha = 0.65f)
-        isPartial -> primaryColor.copy(alpha = 0.35f)
-        else -> borderColor
+    val cellBorderColor = remember(isToday, isCompleted, isPartial, primaryColor, borderColor) {
+        when {
+            isToday -> primaryColor.copy(alpha = 0.90f)
+            isCompleted -> primaryColor.copy(alpha = 0.65f)
+            isPartial -> primaryColor.copy(alpha = 0.35f)
+            else -> borderColor
+        }
     }
 
-    val boxBgColor = when {
-        isCompleted -> {
-            val fillAlpha = when (checkmarkStyleName) {
-                "filled" -> (0.18f + (totalSum - targetCount) * 0.04f).coerceIn(0.18f, 0.32f)
-                else -> 0.15f
+    val boxBgColor = remember(isCompleted, isPartial, checkmarkStyleName, totalSum, targetCount, primaryColor, cardBgColor) {
+        when {
+            isCompleted -> {
+                val fillAlpha = when (checkmarkStyleName) {
+                    "filled" -> (0.20f + (totalSum - targetCount) * 0.04f).coerceIn(0.20f, 0.34f)
+                    else -> 0.15f
+                }
+                primaryColor.copy(alpha = fillAlpha)
             }
-            primaryColor.copy(alpha = fillAlpha)
+            isPartial -> {
+                val partialRatio = (totalSum.toFloat() / targetCount.toFloat()).coerceIn(0f, 1f)
+                primaryColor.copy(alpha = 0.05f + partialRatio * 0.05f)
+            }
+            else -> cardBgColor
         }
-        isPartial -> {
-            val partialRatio = (totalSum.toFloat() / targetCount.toFloat()).coerceIn(0f, 1f)
-            primaryColor.copy(alpha = 0.05f + partialRatio * 0.05f)
-        }
-        else -> cardBgColor
     }
 
-    // Outer Day Box — center is cleanly and evenly lit, with exact 1:1 square symmetry
+    var prevSum by remember(cell.dateString) { mutableIntStateOf(totalSum) }
+    var bounceTrigger by remember(cell.dateString) { mutableStateOf(false) }
+    LaunchedEffect(totalSum) {
+        if (totalSum != prevSum) {
+            bounceTrigger = true
+            kotlinx.coroutines.delay(140)
+            bounceTrigger = false
+            prevSum = totalSum
+        }
+    }
+    val cellScale by animateFloatAsState(
+        targetValue = if (bounceTrigger) 1.09f else 1f,
+        animationSpec = MotionSpecs.BouncyPopSpring,
+        label = "cell_bounce_${cell.dateString}"
+    )
+
+    val isLightCell = !ThemeStyles.isLightColor(textColor)
+    val isGlassCell = ThemeStyles.isGlassTheme(selectedTheme)
+    // Outer Day Box — lightweight 2D soft sheen on completed cells & subtle recessed well on empty cells
     Box(
         modifier = modifier
+            .scale(cellScale)
             .aspectRatio(1f)
+            .then(
+                when {
+                    isCompleted -> Modifier.surface3DCard(
+                        shape = cellShape,
+                        isLight = isLightCell,
+                        primaryColor = primaryColor,
+                        isGlass = isGlassCell,
+                        elevationDp = 3.dp
+                    )
+                    !isPartial -> Modifier.recessedWell(cellShape, isLight = isLightCell)
+                    else -> Modifier
+                }
+            )
             .clip(cellShape)
             .background(boxBgColor)
             .then(
-                if (isCompleted) {
-                    Modifier.drawBehind {
-                        val topRightRadius = (size.minDimension * 0.85f).coerceAtLeast(1f)
-                        drawRect(
-                            brush = Brush.radialGradient(
-                                colors = listOf(
-                                    primaryColor.copy(alpha = 0.28f),
-                                    primaryColor.copy(alpha = 0.10f),
-                                    Color.Transparent
-                                ),
-                                center = Offset(size.width, 0f),
-                                radius = topRightRadius
-                            )
-                        )
-                        val bottomLeftRadius = (size.minDimension * 0.65f).coerceAtLeast(1f)
-                        drawRect(
-                            brush = Brush.radialGradient(
-                                colors = listOf(
-                                    primaryColor.copy(alpha = 0.16f),
-                                    Color.Transparent
-                                ),
-                                center = Offset(0f, size.height),
-                                radius = bottomLeftRadius
-                            )
-                        )
-                    }
-                } else {
-                    Modifier
-                }
+                if (isCompleted) Modifier.completedCellCornerGlow(primaryColor) else Modifier
             )
             .border(width = borderWidth, color = cellBorderColor, shape = cellShape)
             .combinedClickable(
@@ -1268,171 +1673,23 @@ fun CalendarDayCell(
                 onLongClick = onLongClick
             )
     ) {
-
-        // Optional mood indicator or journal dot in top-start corner
-        if (moodTag != null) {
-            Text(
-                text = moodTag,
-                fontSize = 8.5.sp,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .offset(x = 3.dp, y = 3.dp)
-            )
-        } else if (hasNotes) {
-            Box(
-                modifier = Modifier
-                    .size(3.5.dp)
-                    .align(Alignment.TopStart)
-                    .offset(x = 4.dp, y = 4.dp)
-                    .clip(CircleShape)
-                    .background(primaryColor.copy(alpha = 0.75f))
-            )
-        }
-
-        // 1. Indicator — top right, notification badge style
-        if (isCompleted) {
-            val dotSize = when {
-                totalSum >= 4 -> 10.dp
-                totalSum == 3 -> 9.dp
-                totalSum == 2 -> 8.dp
-                else -> 7.dp
-            }
-            val dotAlpha = when {
-                totalSum >= 4 -> 1.0f
-                totalSum == 3 -> 0.90f
-                totalSum == 2 -> 0.75f
-                else -> 0.60f
-            }
-            when (checkmarkStyleName) {
-                "dot" -> Box(
-                    modifier = Modifier
-                        .size(dotSize)
-                        .align(Alignment.TopEnd)
-                        .offset(x = (-4).dp, y = 4.dp)
-                        .clip(CircleShape)
-                        .background(primaryColor.copy(alpha = dotAlpha))
-                )
-                "tick" -> Icon(
-                    Icons.Default.Check,
-                    contentDescription = "Completed",
-                    tint = primaryColor.copy(alpha = dotAlpha),
-                    modifier = Modifier
-                        .size(dotSize + 4.dp)
-                        .align(Alignment.TopEnd)
-                        .offset(x = (-3).dp, y = 3.dp)
-                )
-                "cross" -> Icon(
-                    Icons.Default.Close,
-                    contentDescription = "Logged",
-                    tint = primaryColor.copy(alpha = dotAlpha),
-                    modifier = Modifier
-                        .size(dotSize + 4.dp)
-                        .align(Alignment.TopEnd)
-                        .offset(x = (-3).dp, y = 3.dp)
-                )
-                "number" -> Text(
-                    text = totalSum.toString(),
-                    color = primaryColor,
-                    fontSize = 9.sp,
-                    fontFamily = appFont,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .offset(x = (-3).dp, y = 3.dp)
-                )
-                "ring" -> Box(
-                    modifier = Modifier
-                        .size(dotSize)
-                        .align(Alignment.TopEnd)
-                        .offset(x = (-4).dp, y = 4.dp)
-                        .border(1.5.dp, primaryColor.copy(alpha = dotAlpha), CircleShape)
-                )
-                "bar" -> Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 3.dp)
-                        .height(2.5.dp)
-                        .fillMaxWidth(0.45f)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(primaryColor.copy(alpha = dotAlpha))
-                )
-            }
-        } else if (isPartial) {
-            when (checkmarkStyleName) {
-                "dot" -> Box(
-                    modifier = Modifier
-                        .size(7.dp)
-                        .align(Alignment.TopEnd)
-                        .offset(x = (-4).dp, y = 4.dp)
-                        .border(1.2.dp, primaryColor.copy(alpha = 0.50f), CircleShape)
-                )
-                "tick" -> {
-                    Text(
-                        text = "$totalSum",
-                        color = primaryColor.copy(alpha = 0.75f),
-                        fontSize = 8.5.sp,
-                        fontFamily = appFont,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .offset(x = (-3).dp, y = 3.dp)
-                    )
-                }
-                "cross" -> Icon(
-                    Icons.Default.Close,
-                    contentDescription = "Partial",
-                    tint = primaryColor.copy(alpha = 0.35f),
-                    modifier = Modifier
-                        .size(9.dp)
-                        .align(Alignment.TopEnd)
-                        .offset(x = (-3).dp, y = 3.dp)
-                )
-                "number" -> Text(
-                    text = "$totalSum",
-                    color = secondaryTextColor,
-                    fontSize = 8.5.sp,
-                    fontFamily = appFont,
-                    fontWeight = FontWeight.Normal,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .offset(x = (-3).dp, y = 3.dp)
-                )
-                "ring" -> Box(
-                    modifier = Modifier
-                        .size(7.dp)
-                        .align(Alignment.TopEnd)
-                        .offset(x = (-4).dp, y = 4.dp)
-                        .border(0.9.dp, primaryColor.copy(alpha = 0.40f), CircleShape)
-                )
-                "bar" -> {
-                    val progressFraction = (totalSum.toFloat() / targetCount.toFloat()).coerceIn(0.12f, 0.45f)
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 3.dp)
-                            .height(2.dp)
-                            .fillMaxWidth(0.45f * progressFraction)
-                            .clip(RoundedCornerShape(1.dp))
-                            .background(primaryColor.copy(alpha = 0.40f))
-                    )
-                }
-            }
-        }
-
-        // 2. Date number — bottom center
-        Text(
-            text = "${cell.date.dayOfMonth}",
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 5.dp),
-            color = when {
-                isToday -> if (isCompleted) textColor else (if (primaryColor == Color.White) textColor else primaryColor)
-                cell.isCurrentMonth -> textColor.copy(alpha = if (isCompleted) 0.95f else 0.85f)
-                else -> secondaryTextColor.copy(alpha = 0.32f)
-            },
-            fontSize = 13.5.sp,
-            fontFamily = appFont,
-            fontWeight = if (isToday || isCompleted) FontWeight.Bold else FontWeight.Medium
+        CalendarCompletionIndicator(
+            dayNumber = cell.date.dayOfMonth,
+            totalSum = totalSum,
+            targetCount = targetCount,
+            isCompleted = isCompleted,
+            isPartial = isPartial,
+            isToday = isToday,
+            isCurrentMonth = cell.isCurrentMonth,
+            hasNotes = hasNotes,
+            moodTag = moodTag,
+            cellShapeKey = cellShapeKey,
+            cellShape = cellShape,
+            checkmarkStyleName = checkmarkStyleName,
+            primaryColor = primaryColor,
+            textColor = textColor,
+            secondaryTextColor = secondaryTextColor,
+            appFont = appFont
         )
     }
 }

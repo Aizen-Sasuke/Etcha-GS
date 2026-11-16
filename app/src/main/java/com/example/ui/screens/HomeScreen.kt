@@ -1,6 +1,9 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.PagerState
@@ -20,6 +23,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.data.HabitEntry
 import com.example.ui.HabitStats
@@ -29,6 +33,9 @@ import com.example.ui.TodayDashboardState
 import com.example.ui.TodayHabitItem
 import com.example.ui.TrackerConfig
 import com.example.ui.components.ConfettiCelebration
+import com.example.ui.components.MotionSpecs
+import com.example.ui.components.springPressScale
+import com.example.ui.components.surface3DCard
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.temporal.ChronoUnit
@@ -49,6 +56,7 @@ class HomeScreenDialogState {
     var trackerToManage by mutableStateOf<TrackerConfig?>(null)
     var trackerToEdit by mutableStateOf<TrackerConfig?>(null)
     var detailItemForTodaySheet by mutableStateOf<TodayHabitItem?>(null)
+    var showFreezeDialog by mutableStateOf(false)
 }
 
 data class HomeThemeConfig(
@@ -61,7 +69,9 @@ data class HomeThemeConfig(
     val secondaryTextColor: Color,
     val appFont: FontFamily,
     val cellShape: Shape,
-    val checkmarkStyleName: String
+    val checkmarkStyleName: String,
+    val cellShapeKey: String = "rounded_square",
+    val modalBgColor: Color = cardBgColor
 )
 
 @Composable
@@ -108,19 +118,55 @@ fun HomeScreen(
 
     val selectedTheme by viewModel.selectedTheme.collectAsState()
     val customBgHex by viewModel.customBackgroundColor.collectAsState()
+    val isGlassTheme = ThemeStyles.isGlassTheme(selectedTheme)
 
-    val themeConfig = remember(selectedTheme, customBgHex, customHex, selectedFontName, calendarCellShapeName, checkmarkStyleName) {
+    val animatedBg by animateColorAsState(
+        targetValue = ThemeStyles.getBackgroundColor(selectedTheme, customBgHex),
+        animationSpec = tween(260),
+        label = "home_bg"
+    )
+    val animatedPrimary by animateColorAsState(
+        targetValue = ThemeStyles.getPrimaryColor(selectedTheme, customHex),
+        animationSpec = tween(260),
+        label = "home_primary"
+    )
+    val animatedCardBg by animateColorAsState(
+        targetValue = ThemeStyles.getCardBackgroundColor(selectedTheme, customBgHex),
+        animationSpec = tween(260),
+        label = "home_card_bg"
+    )
+    val animatedBorder by animateColorAsState(
+        targetValue = ThemeStyles.getBorderColor(selectedTheme, customBgHex),
+        animationSpec = tween(260),
+        label = "home_border"
+    )
+    val modalBgColor = ThemeStyles.getOpaqueCardColor(selectedTheme, customBgHex)
+
+    val themeConfig = remember(
+        selectedTheme,
+        animatedBg,
+        animatedPrimary,
+        animatedCardBg,
+        animatedBorder,
+        modalBgColor,
+        customBgHex,
+        selectedFontName,
+        calendarCellShapeName,
+        checkmarkStyleName
+    ) {
         HomeThemeConfig(
             selectedTheme = selectedTheme,
-            bgColor = ThemeStyles.getBackgroundColor(selectedTheme, customBgHex),
-            primaryColor = ThemeStyles.getPrimaryColor(selectedTheme, customHex),
-            cardBgColor = ThemeStyles.getCardBackgroundColor(selectedTheme, customBgHex),
-            borderColor = ThemeStyles.getBorderColor(selectedTheme),
-            textColor = ThemeStyles.getTextColor(selectedTheme),
-            secondaryTextColor = ThemeStyles.getSecondaryTextColor(selectedTheme),
+            bgColor = animatedBg,
+            primaryColor = animatedPrimary,
+            cardBgColor = animatedCardBg,
+            borderColor = animatedBorder,
+            textColor = ThemeStyles.getTextColor(selectedTheme, customBgHex),
+            secondaryTextColor = ThemeStyles.getSecondaryTextColor(selectedTheme, customBgHex),
             appFont = ThemeStyles.getSelectedFontFamily(selectedFontName),
+            cellShapeKey = calendarCellShapeName,
             cellShape = ThemeStyles.getCalendarCellShape(calendarCellShapeName),
-            checkmarkStyleName = checkmarkStyleName
+            checkmarkStyleName = checkmarkStyleName,
+            modalBgColor = modalBgColor
         )
     }
 
@@ -128,6 +174,10 @@ fun HomeScreen(
     val archivedTrackers by viewModel.archivedTrackers.collectAsState()
     val selectedTrackerId by viewModel.selectedTrackerId.collectAsState()
     val todayDashboard by viewModel.todayDashboard.collectAsState()
+    val isSupporter by viewModel.isSupporter.collectAsState()
+    val supporterBadgeEnabled by viewModel.supporterBadgeEnabled.collectAsState()
+    val supporterVaultFreezes by viewModel.supporterVaultFreezes.collectAsState()
+    val showDemoBanner by viewModel.showDemoBanner.collectAsState()
 
     val triggerQuickCheckInForTracker: (String, String, String?) -> Unit = { trackerId, dateStr, mood ->
         val targetTracker = trackers.find { it.id == trackerId } ?: activeTracker
@@ -174,7 +224,7 @@ fun HomeScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(themeConfig.bgColor)
+            .background(if (isGlassTheme) Color.Transparent else themeConfig.bgColor)
             .padding(horizontal = 16.dp)
     ) {
         ConfettiCelebration(
@@ -202,12 +252,12 @@ fun HomeScreen(
             pagerState = pagerState,
             currentYearMonth = currentYearMonth,
             selectedMonthEntriesCount = selectedMonthEntriesCount,
+            showSupporterBadge = isSupporter && supporterBadgeEnabled,
+            showDemoBanner = showDemoBanner,
             themeConfig = themeConfig,
-            onFreezeClick = {
-                if (freezeDate == null && activeTracker.type == "good") {
-                    viewModel.applyStreakFreeze()
-                }
-            },
+            onDismissDemoBanner = { viewModel.dismissDemoBanner() },
+            onClearDemoTracker = { viewModel.clearDemoTracker() },
+            onFreezeClick = { dialogState.showFreezeDialog = true },
             onFilterChange = { selectedRoutineFilter = it },
             onSelectTracker = { viewModel.selectTracker(it) },
             onLongClickTracker = { dialogState.trackerToManage = it },
@@ -234,15 +284,28 @@ fun HomeScreen(
         )
 
         // Floating Quick Add Button
+        val isLight = ThemeStyles.isLightTheme(selectedTheme, customBgHex)
         FloatingActionButton(
             onClick = { dialogState.showQuickAddDialog = true },
             containerColor = themeConfig.primaryColor,
             contentColor = if (themeConfig.primaryColor == Color.White) Color.Black else Color.White,
             shape = CircleShape,
+            elevation = FloatingActionButtonDefaults.elevation(
+                defaultElevation = 6.dp,
+                pressedElevation = 2.dp
+            ),
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(bottom = 16.dp, end = 16.dp)
                 .size(56.dp)
+                .springPressScale(pressedScale = 0.89f, depressDp = 2.dp)
+                .surface3DCard(
+                    shape = CircleShape,
+                    isLight = isLight,
+                    primaryColor = themeConfig.primaryColor,
+                    isGlass = isGlassTheme,
+                    elevationDp = 6.dp
+                )
                 .testTag("floating_add_button")
         ) {
             Icon(
@@ -262,10 +325,17 @@ fun HomeScreen(
         ) { snackbarData ->
             Snackbar(
                 snackbarData = snackbarData,
-                containerColor = if (ThemeStyles.isLightTheme(themeConfig.selectedTheme)) Color(0xFF1E1E1E) else Color(0xFF2C2C2C),
+                containerColor = if (isLight) Color(0xFF1E1E1E) else Color(0xFF2C2C2C),
                 contentColor = Color.White,
                 actionColor = themeConfig.primaryColor,
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.surface3DCard(
+                    shape = RoundedCornerShape(12.dp),
+                    isLight = false,
+                    primaryColor = themeConfig.primaryColor,
+                    isGlass = false,
+                    elevationDp = 8.dp
+                )
             )
         }
 
@@ -314,7 +384,11 @@ private fun HomeScreenContent(
     pagerState: PagerState,
     currentYearMonth: YearMonth,
     selectedMonthEntriesCount: Int,
+    showSupporterBadge: Boolean,
+    showDemoBanner: Boolean,
     themeConfig: HomeThemeConfig,
+    onDismissDemoBanner: () -> Unit,
+    onClearDemoTracker: () -> Unit,
     onFreezeClick: () -> Unit,
     onFilterChange: (String) -> Unit,
     onSelectTracker: (String) -> Unit,
@@ -352,8 +426,21 @@ private fun HomeScreenContent(
             textColor = themeConfig.textColor,
             secondaryTextColor = themeConfig.secondaryTextColor,
             appFont = themeConfig.appFont,
+            showSupporterBadge = showSupporterBadge,
             onFreezeClick = onFreezeClick
         )
+
+        AnimatedVisibility(
+            visible = showDemoBanner,
+            enter = expandVertically(animationSpec = MotionSpecs.CardRevealSizeSpring) + fadeIn(tween(220)),
+            exit = shrinkVertically(animationSpec = MotionSpecs.CardRevealSizeSpring) + fadeOut(tween(160))
+        ) {
+            DemoTrackerBannerCard(
+                themeConfig = themeConfig,
+                onDismiss = onDismissDemoBanner,
+                onClearDemo = onClearDemoTracker
+            )
+        }
 
         Spacer(modifier = Modifier.height(6.dp))
 
@@ -432,6 +519,7 @@ private fun HomeScreenContent(
             textColor = themeConfig.textColor,
             secondaryTextColor = themeConfig.secondaryTextColor,
             appFont = themeConfig.appFont,
+            cellShapeKey = themeConfig.cellShapeKey,
             cellShape = themeConfig.cellShape,
             checkmarkStyleName = themeConfig.checkmarkStyleName,
             selectedTheme = themeConfig.selectedTheme,
@@ -466,7 +554,7 @@ private fun HomeScreenDialogsHost(
         primaryColor = themeConfig.primaryColor,
         textColor = themeConfig.textColor,
         secondaryTextColor = themeConfig.secondaryTextColor,
-        cardBgColor = themeConfig.cardBgColor,
+        cardBgColor = themeConfig.modalBgColor,
         borderColor = themeConfig.borderColor,
         selectedTheme = themeConfig.selectedTheme
     )
@@ -492,7 +580,7 @@ private fun HomeScreenDialogsHost(
         primaryColor = themeConfig.primaryColor,
         textColor = themeConfig.textColor,
         secondaryTextColor = themeConfig.secondaryTextColor,
-        cardBgColor = themeConfig.cardBgColor
+        cardBgColor = themeConfig.modalBgColor
     )
 
     ArchiveTrackerDialog(
@@ -505,7 +593,7 @@ private fun HomeScreenDialogsHost(
         primaryColor = themeConfig.primaryColor,
         textColor = themeConfig.textColor,
         secondaryTextColor = themeConfig.secondaryTextColor,
-        cardBgColor = themeConfig.cardBgColor,
+        cardBgColor = themeConfig.modalBgColor,
         borderColor = themeConfig.borderColor
     )
 
@@ -517,7 +605,7 @@ private fun HomeScreenDialogsHost(
         primaryColor = themeConfig.primaryColor,
         textColor = themeConfig.textColor,
         secondaryTextColor = themeConfig.secondaryTextColor,
-        cardBgColor = themeConfig.cardBgColor,
+        cardBgColor = themeConfig.modalBgColor,
         borderColor = themeConfig.borderColor,
         selectedTheme = themeConfig.selectedTheme
     )
@@ -532,7 +620,7 @@ private fun HomeScreenDialogsHost(
         primaryColor = themeConfig.primaryColor,
         textColor = themeConfig.textColor,
         secondaryTextColor = themeConfig.secondaryTextColor,
-        cardBgColor = themeConfig.cardBgColor,
+        cardBgColor = themeConfig.modalBgColor,
         borderColor = themeConfig.borderColor
     )
 
@@ -551,7 +639,7 @@ private fun HomeScreenDialogsHost(
         primaryColor = themeConfig.primaryColor,
         textColor = themeConfig.textColor,
         secondaryTextColor = themeConfig.secondaryTextColor,
-        cardBgColor = themeConfig.cardBgColor,
+        cardBgColor = themeConfig.modalBgColor,
         borderColor = themeConfig.borderColor
     )
 
@@ -564,7 +652,7 @@ private fun HomeScreenDialogsHost(
         primaryColor = themeConfig.primaryColor,
         textColor = themeConfig.textColor,
         secondaryTextColor = themeConfig.secondaryTextColor,
-        cardBgColor = themeConfig.cardBgColor,
+        cardBgColor = themeConfig.modalBgColor,
         borderColor = themeConfig.borderColor,
         selectedTheme = themeConfig.selectedTheme
     )
@@ -584,7 +672,7 @@ private fun HomeScreenDialogsHost(
         primaryColor = themeConfig.primaryColor,
         textColor = themeConfig.textColor,
         secondaryTextColor = themeConfig.secondaryTextColor,
-        cardBgColor = themeConfig.cardBgColor,
+        cardBgColor = themeConfig.modalBgColor,
         borderColor = themeConfig.borderColor,
         selectedTheme = themeConfig.selectedTheme
     )
@@ -605,7 +693,7 @@ private fun HomeScreenDialogsHost(
         primaryColor = themeConfig.primaryColor,
         textColor = themeConfig.textColor,
         secondaryTextColor = themeConfig.secondaryTextColor,
-        cardBgColor = themeConfig.cardBgColor,
+        cardBgColor = themeConfig.modalBgColor,
         borderColor = themeConfig.borderColor,
         selectedTheme = themeConfig.selectedTheme
     )
@@ -650,6 +738,89 @@ private fun HomeScreenDialogsHost(
             viewModel = viewModel,
             onClose = { dialogState.showCloudBackupModal = false },
             onOpenDonate = { dialogState.showDonateDialog = true }
+        )
+    }
+
+    if (dialogState.showFreezeDialog) {
+        val isSupporter by viewModel.isSupporter.collectAsState()
+        val vaultFreezes by viewModel.supporterVaultFreezes.collectAsState()
+        val activeFreezeDate by viewModel.streakFreezeDate.collectAsState()
+        val isAlreadyFrozenToday = activeFreezeDate == today.toString()
+
+        AlertDialog(
+            onDismissRequest = { dialogState.showFreezeDialog = false },
+            containerColor = themeConfig.modalBgColor,
+            shape = DesignTokens.CardShape,
+            title = {
+                Text(
+                    text = if (isAlreadyFrozenToday) "🧊 Streak Freeze Active" else "🛡️ Streak Freeze & Vault",
+                    fontFamily = themeConfig.appFont,
+                    fontWeight = FontWeight.Bold,
+                    color = themeConfig.textColor
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = when {
+                            isAlreadyFrozenToday -> "Today (${today}) is protected by a Streak Freeze. Your active habit streaks won't break if you miss a check-in today."
+                            activeTracker.type != "good" -> "Streak Freezes protect Good habits. Switch to a Good habit or open the Supporter Vault to manage your Freeze reserve."
+                            else -> "Taking a planned break? Activate a Streak Freeze to keep your streak intact today."
+                        },
+                        fontFamily = themeConfig.appFont,
+                        color = themeConfig.secondaryTextColor
+                    )
+                    if (isSupporter) {
+                        Text(
+                            text = "Vault Reserve: $vaultFreezes freezes available",
+                            fontFamily = themeConfig.appFont,
+                            fontWeight = FontWeight.SemiBold,
+                            color = themeConfig.primaryColor
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                if (!isAlreadyFrozenToday && activeTracker.type == "good") {
+                    Button(
+                        onClick = {
+                            if (isSupporter && vaultFreezes > 0) {
+                                viewModel.useVaultFreeze()
+                            } else {
+                                viewModel.applyStreakFreeze()
+                            }
+                            dialogState.showFreezeDialog = false
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = themeConfig.primaryColor,
+                            contentColor = if (ThemeStyles.isLightColor(themeConfig.primaryColor)) Color.Black else Color.White
+                        )
+                    ) {
+                        Text(
+                            text = if (isSupporter && vaultFreezes > 0) "Use Vault Freeze" else "Freeze Today",
+                            fontFamily = themeConfig.appFont,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                } else {
+                    TextButton(onClick = {
+                        dialogState.showFreezeDialog = false
+                        dialogState.showDonateDialog = true
+                    }) {
+                        Text(
+                            text = "Open Vault",
+                            fontFamily = themeConfig.appFont,
+                            color = themeConfig.primaryColor,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { dialogState.showFreezeDialog = false }) {
+                    Text("Close", fontFamily = themeConfig.appFont, color = themeConfig.secondaryTextColor)
+                }
+            }
         )
     }
 }

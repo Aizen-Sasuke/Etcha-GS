@@ -1,16 +1,14 @@
 package com.example.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,12 +20,14 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.ui.HabitViewModel
 import com.example.ui.ThemeStyles
+import java.time.format.DateTimeFormatter
 
 @Composable
 fun DonateModal(
@@ -40,33 +40,42 @@ fun DonateModal(
     val selectedFont by viewModel.selectedFont.collectAsState()
     val isSupporter by viewModel.isSupporter.collectAsState()
     val vaultFreezes by viewModel.supporterVaultFreezes.collectAsState()
+    val badgeEnabled by viewModel.supporterBadgeEnabled.collectAsState()
+    val streakFreezeDate by viewModel.streakFreezeDate.collectAsState()
 
-    val cardBgColor = ThemeStyles.getCardBackgroundColor(selectedTheme, customBgHex)
-    val borderColor = ThemeStyles.getBorderColor(selectedTheme)
+    val cardBgColor = ThemeStyles.getOpaqueCardColor(selectedTheme, customBgHex)
+    val borderColor = ThemeStyles.getBorderColor(selectedTheme, customBgHex)
     val primaryColor = ThemeStyles.getPrimaryColor(selectedTheme, customHex)
     val appFont = ThemeStyles.getSelectedFontFamily(selectedFont)
-    val textColor = ThemeStyles.getTextColor(selectedTheme)
-    val secondaryTextColor = ThemeStyles.getSecondaryTextColor(selectedTheme)
-    val isLight = ThemeStyles.isLightTheme(selectedTheme)
+    val textColor = ThemeStyles.getTextColor(selectedTheme, customBgHex)
+    val secondaryTextColor = ThemeStyles.getSecondaryTextColor(selectedTheme, customBgHex)
+    val isLight = ThemeStyles.isLightTheme(selectedTheme, customBgHex)
+    val onPrimaryColor = if (ThemeStyles.isLightColor(primaryColor)) Color.Black else Color.White
+    val vaultAccent = if (isLight) Color(0xFF9A5B00) else Color(0xFFFFD54F)
     val hapticFeedback = LocalHapticFeedback.current
 
-    var selectedTier by remember { mutableStateOf("boost") }
-    var showThankYou by remember { mutableStateOf(false) }
+    val todayStr = remember {
+        viewModel.getEffectiveToday().format(DateTimeFormatter.ISO_LOCAL_DATE)
+    }
+    val isTodayFrozen = streakFreezeDate == todayStr
 
-    val tipTiers = listOf(
-        Triple("coffee", "☕ Coffee Tip", "$2"),
-        Triple("pizza", "🍕 Pizza Slice", "$5"),
-        Triple("boost", "🚀 VIP Supporter", "$10"),
-        Triple("patron", "💎 Lifetime Patron", "$25")
+    var selectedTier by remember { mutableStateOf("builder") }
+    var showThankYou by remember { mutableStateOf(false) }
+    var vaultFeedback by remember { mutableStateOf<String?>(null) }
+
+    val supporterModes = listOf(
+        Triple("coffee", "☕ Coffee Cheer", "Supporter Badge"),
+        Triple("builder", "🚀 Daily Builder", "Bonus Themes + Vault"),
+        Triple("champion", "💎 Streak Champion", "All Offline Perks")
     )
 
     val perks = listOf(
-        "👑" to "VIP Themes: 24K Gold, Nebula Opal, Emerald Elite, Rose Diamond & more",
-        "🛡️" to "Streak Freeze Vault: 3+ bonus safety freezes & automatic slip forgiveness",
-        "💾" to "Local Snapshots & Backup: One-tap device restore points & JSON export",
-        "⭐" to "VIP Profile Badge: Exclusive gleaming supporter emblem in top header",
-        "📊" to "Advanced Synergy & AI Insights: Peak hour efficiency & habit correlations",
-        "📖" to "Rich Daily Journal: Deep reflection prompts & mood distribution analytics"
+        "🎨" to "Bonus Theme Collection: 24K Gold, Nebula Opal, Emerald Elite, Rose Diamond & more",
+        "🛡️" to "Streak Freeze Vault: 3+ bonus safety freezes to protect active streaks",
+        "💾" to "Local Snapshots & Backup: One-tap device restore points & JSON backup",
+        "⭐" to "Supporter Emblem: Optional badge highlight in your profile header",
+        "📊" to "Deep Trend & Rhythm Insights: Weekly consistency, mood breakdown & peak hours",
+        "📖" to "Rich Daily Journal: Reflection prompts & mood distribution tracking"
     )
 
     Dialog(
@@ -82,10 +91,11 @@ fun DonateModal(
         ) {
             Card(
                 colors = CardDefaults.cardColors(containerColor = cardBgColor),
-                border = androidx.compose.foundation.BorderStroke(1.dp, borderColor),
+                border = BorderStroke(1.dp, borderColor),
                 shape = RoundedCornerShape(24.dp),
                 modifier = Modifier
                     .fillMaxWidth()
+                    .widthIn(max = 520.dp)
                     .wrapContentHeight()
                     .testTag("donate_modal")
             ) {
@@ -105,94 +115,259 @@ fun DonateModal(
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.weight(1f).padding(end = 8.dp)
                             ) {
                                 Text(text = "💖", fontSize = 22.sp)
                                 Text(
-                                    text = "Support & VIP Perks",
+                                    text = "Supporter Edition & Vault",
                                     fontFamily = appFont,
                                     fontSize = 17.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = textColor
+                                    color = textColor,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
 
-                            IconButton(onClick = onDismiss) {
+                            IconButton(
+                                onClick = onDismiss,
+                                modifier = Modifier.size(48.dp)
+                            ) {
                                 Icon(Icons.Default.Close, contentDescription = "Close", tint = secondaryTextColor)
                             }
                         }
                     }
 
                     if (showThankYou || isSupporter) {
-                        // Thank you view
                         item {
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(16.dp))
-                                    .background(Color(0xFFFFD700).copy(alpha = 0.12f))
-                                    .border(1.dp, Color(0xFFFFD700).copy(alpha = 0.4f), RoundedCornerShape(16.dp))
+                                    .background(vaultAccent.copy(alpha = 0.12f))
+                                    .border(1.dp, vaultAccent.copy(alpha = 0.45f), RoundedCornerShape(16.dp))
                                     .padding(16.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 Text(text = "🎉 ⭐ 💖", fontSize = 28.sp)
                                 Text(
-                                    text = "You're an Official Supporter!",
+                                    text = "Supporter Edition Active!",
                                     fontFamily = appFont,
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFFFFD700),
+                                    color = vaultAccent,
                                     textAlign = TextAlign.Center
                                 )
                                 Text(
-                                    text = "All VIP themes, device snapshots & backup, bonus freeze vault, and exclusive perks are permanently unlocked on your account.",
+                                    text = "All bonus themes, device snapshots, and your streak freeze vault are unlocked locally on this device.",
                                     fontFamily = appFont,
                                     fontSize = 12.sp,
                                     color = textColor,
                                     textAlign = TextAlign.Center,
                                     lineHeight = 16.sp
                                 )
+
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(vaultAccent.copy(alpha = 0.18f))
+                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = "🛡️ Vault Freezes: $vaultFreezes available",
+                                        fontFamily = appFont,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = vaultAccent
+                                    )
+                                }
+                            }
+                        }
+
+                        // Interactive Vault Freeze & Emblem Controls
+                        item {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(if (isLight) borderColor.copy(alpha = 0.14f) else Color(0xFF171717))
+                                    .border(0.5.dp, borderColor, RoundedCornerShape(16.dp))
+                                    .padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Text(
+                                    text = "STREAK FREEZE VAULT",
+                                    fontFamily = appFont,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = secondaryTextColor
+                                )
+                                Text(
+                                    text = if (isTodayFrozen) {
+                                        "Today's streak is already protected with a Freeze."
+                                    } else {
+                                        "Use 1 Vault Freeze to protect your good-habit streak today without breaking momentum."
+                                    },
+                                    fontFamily = appFont,
+                                    fontSize = 12.sp,
+                                    color = textColor,
+                                    lineHeight = 16.sp
+                                )
+
+                                if (!vaultFeedback.isNullOrBlank()) {
+                                    Text(
+                                        text = vaultFeedback!!,
+                                        fontFamily = appFont,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = primaryColor
+                                    )
+                                }
+
                                 Row(
-                                    modifier = Modifier.padding(top = 4.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(IntrinsicSize.Max),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Box(
+                                    Button(
+                                        onClick = {
+                                            viewModel.useVaultFreeze { ok, msg ->
+                                                vaultFeedback = msg
+                                                if (ok) {
+                                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                }
+                                            }
+                                        },
+                                        enabled = !isTodayFrozen && vaultFreezes > 0,
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = primaryColor,
+                                            contentColor = onPrimaryColor
+                                        ),
+                                        shape = RoundedCornerShape(12.dp),
                                         modifier = Modifier
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(Color(0xFFFFD700).copy(alpha = 0.25f))
-                                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                                            .weight(1f)
+                                            .fillMaxHeight()
+                                            .heightIn(min = 48.dp)
+                                            .testTag("use_vault_freeze_button")
                                     ) {
                                         Text(
-                                            text = "Vault Freezes: $vaultFreezes available",
+                                            text = if (isTodayFrozen) "🧊 Protected" else "🛡️ Use Freeze",
                                             fontFamily = appFont,
-                                            fontSize = 11.sp,
+                                            fontSize = 12.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color(0xFFFFD700)
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                     }
+
+                                    if (vaultFreezes < 5) {
+                                        OutlinedButton(
+                                            onClick = {
+                                                viewModel.refillVaultFreezes()
+                                                vaultFeedback = "Vault refilled to 5 freezes."
+                                            },
+                                            border = BorderStroke(0.8.dp, borderColor),
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .fillMaxHeight()
+                                                .heightIn(min = 48.dp)
+                                                .testTag("refill_vault_button")
+                                        ) {
+                                            Text(
+                                                text = "🔄 Refill (5)",
+                                                fontFamily = appFont,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = textColor,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                }
+
+                                HorizontalDivider(color = borderColor.copy(alpha = 0.4f), thickness = 0.5.dp)
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                        Text(
+                                            text = "Supporter Emblem Badge",
+                                            fontFamily = appFont,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = textColor
+                                        )
+                                        Text(
+                                            text = "Display a subtle ⭐ badge in your Home header",
+                                            fontFamily = appFont,
+                                            fontSize = 11.sp,
+                                            color = secondaryTextColor
+                                        )
+                                    }
+                                    Switch(
+                                        checked = badgeEnabled,
+                                        onCheckedChange = { viewModel.setSupporterBadgeEnabled(it) },
+                                        colors = SwitchDefaults.colors(
+                                            checkedThumbColor = onPrimaryColor,
+                                            checkedTrackColor = primaryColor,
+                                            uncheckedThumbColor = secondaryTextColor,
+                                            uncheckedTrackColor = borderColor.copy(alpha = 0.3f)
+                                        )
+                                    )
                                 }
                             }
                         }
 
                         item {
-                            Button(
-                                onClick = onDismiss,
-                                colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Text(
-                                    text = "Enjoy VIP Experience ✨",
-                                    fontFamily = appFont,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    color = if (ThemeStyles.isThemeDark(selectedTheme)) Color.Black else Color.White
-                                )
+                                Button(
+                                    onClick = onDismiss,
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = primaryColor,
+                                        contentColor = onPrimaryColor
+                                    ),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 48.dp)
+                                ) {
+                                    Text(
+                                        text = "Continue with Bonus Vault ✨",
+                                        fontFamily = appFont,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp
+                                    )
+                                }
+
+                                TextButton(
+                                    onClick = {
+                                        viewModel.setSupporter(false)
+                                        showThankYou = false
+                                    },
+                                    modifier = Modifier.heightIn(min = 40.dp)
+                                ) {
+                                    Text(
+                                        text = "Turn off Supporter Preview",
+                                        fontFamily = appFont,
+                                        fontSize = 12.sp,
+                                        color = secondaryTextColor
+                                    )
+                                }
                             }
                         }
                     } else {
-                        // Supporter Perks List
                         item {
                             Column(
                                 modifier = Modifier
@@ -204,9 +379,9 @@ fun DonateModal(
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Text(
-                                    text = "EXCLUSIVE SUPPORTER PERKS:",
+                                    text = "INCLUDED IN SUPPORTER EDITION (NO CHARGE · 100% OFFLINE):",
                                     fontFamily = appFont,
-                                    fontSize = 11.sp,
+                                    fontSize = 10.5.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = primaryColor
                                 )
@@ -219,28 +394,28 @@ fun DonateModal(
                                         Text(
                                             text = desc,
                                             fontFamily = appFont,
-                                            fontSize = 11.sp,
+                                            fontSize = 11.5.sp,
                                             color = textColor,
-                                            lineHeight = 15.sp
+                                            lineHeight = 16.sp
                                         )
                                     }
                                 }
                             }
                         }
 
-                        // Donation Tiers
                         item {
                             Column(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                tipTiers.forEach { (tKey, tLabel, tPrice) ->
+                                supporterModes.forEach { (tKey, tLabel, tTag) ->
                                     val isSelected = selectedTier == tKey
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
+                                            .heightIn(min = 48.dp)
                                             .clip(RoundedCornerShape(12.dp))
-                                            .background(if (isSelected) primaryColor.copy(alpha = 0.15f) else (if (isLight) Color(0xFFEEEEEE) else Color(0xFF1B1B1B)))
+                                            .background(if (isSelected) primaryColor.copy(alpha = 0.15f) else (if (isLight) borderColor.copy(alpha = 0.14f) else Color(0xFF1B1B1B)))
                                             .border(
                                                 width = if (isSelected) 1.5.dp else 0.5.dp,
                                                 color = if (isSelected) primaryColor else borderColor,
@@ -256,20 +431,24 @@ fun DonateModal(
                                             fontFamily = appFont,
                                             fontSize = 13.sp,
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                            color = textColor
+                                            color = textColor,
+                                            modifier = Modifier.weight(1f).padding(end = 8.dp),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                         Box(
                                             modifier = Modifier
                                                 .clip(RoundedCornerShape(6.dp))
                                                 .background(if (isSelected) primaryColor else borderColor.copy(alpha = 0.5f))
-                                                .padding(horizontal = 10.dp, vertical = 3.dp)
+                                                .padding(horizontal = 10.dp, vertical = 4.dp)
                                         ) {
                                             Text(
-                                                text = tPrice,
+                                                text = tTag,
                                                 fontFamily = appFont,
-                                                fontSize = 12.sp,
+                                                fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold,
-                                                color = if (isSelected) (if (ThemeStyles.isThemeDark(selectedTheme)) Color.Black else Color.White) else textColor
+                                                color = if (isSelected) onPrimaryColor else textColor,
+                                                maxLines = 1
                                             )
                                         }
                                     }
@@ -284,16 +463,22 @@ fun DonateModal(
                                     showThankYou = true
                                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                                 },
-                                colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = primaryColor,
+                                    contentColor = onPrimaryColor
+                                ),
                                 shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
                             ) {
                                 Text(
-                                    text = "💖 Unlock VIP & Support Project",
+                                    text = "✨ Activate Supporter Edition & Vault",
                                     fontFamily = appFont,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (ThemeStyles.isThemeDark(selectedTheme)) Color.Black else Color.White
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }

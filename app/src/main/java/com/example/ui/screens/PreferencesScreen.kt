@@ -31,6 +31,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.app.Activity
@@ -40,15 +41,24 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.toColorInt
 import com.example.worker.ReminderManager
 import androidx.core.app.ShareCompat
 import android.content.Intent
 import com.example.ui.HabitViewModel
 import com.example.ui.ThemeStyles
+import com.example.ui.components.MotionSpecs
+import com.example.ui.components.StaggeredReveal
+import com.example.ui.components.recessedWell
+import com.example.ui.components.springPressScale
+import com.example.ui.components.surface3DCard
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.draw.scale
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
+import java.util.Locale
 
 @Composable
 fun PreferencesScreen(
@@ -75,24 +85,28 @@ fun PreferencesScreen(
     val calendarCellShapeName by viewModel.calendarCellShape.collectAsState()
     val checkmarkStyleName by viewModel.checkmarkStyle.collectAsState()
     
+    val isGlass = ThemeStyles.isGlassTheme(selectedTheme)
     val bgColor = ThemeStyles.getBackgroundColor(selectedTheme, customBgHex)
     val cardBgColor = ThemeStyles.getCardBackgroundColor(selectedTheme, customBgHex)
-    val borderColor = ThemeStyles.getBorderColor(selectedTheme)
+    val modalBgColor = ThemeStyles.getOpaqueCardColor(selectedTheme, customBgHex)
+    val borderColor = ThemeStyles.getBorderColor(selectedTheme, customBgHex)
+    val cardStroke = ThemeStyles.getGlassBorderStroke(selectedTheme, customBgHex)
     val primaryColor = ThemeStyles.getPrimaryColor(selectedTheme, customHex)
     val appFont = ThemeStyles.getSelectedFontFamily(selectedFont)
 
-    val isLight = ThemeStyles.isLightTheme(selectedTheme)
-    val textColor = ThemeStyles.getTextColor(selectedTheme)
-    val secondaryTextColor = ThemeStyles.getSecondaryTextColor(selectedTheme)
-    val neutralBg = if (isLight) Color(0xFFE2E2E2) else Color(0xFF222222)
-    val neutralStroke = if (isLight) Color(0xFFCCCCCC) else Color(0xFF333333)
-    val innerDarkText = if (isLight && selectedTheme == "revolutionary_cream") Color.White else if (isLight) Color.White else Color.Black
+    val isLight = ThemeStyles.isLightTheme(selectedTheme, customBgHex)
+    val textColor = ThemeStyles.getTextColor(selectedTheme, customBgHex)
+    val secondaryTextColor = ThemeStyles.getSecondaryTextColor(selectedTheme, customBgHex)
+    val neutralBg = borderColor.copy(alpha = if (isLight) 0.25f else 0.28f)
+    val neutralStroke = borderColor.copy(alpha = 0.55f)
+    val innerDarkText = if (ThemeStyles.isLightColor(primaryColor)) Color.Black else Color.White
 
     val reminderTime by viewModel.reminderTime.collectAsState()
     val remindersEnabled by viewModel.remindersEnabled.collectAsState()
     val dayRolloverHour by viewModel.dayRolloverHour.collectAsState()
     val celebrationsEnabled by viewModel.celebrationsEnabled.collectAsState()
     val isSupporter by viewModel.isSupporter.collectAsState()
+    val isDemoTrackerLoaded by viewModel.isDemoTrackerLoaded.collectAsState()
     
     var showTimeDialog by remember { mutableStateOf(false) }
     var showThemePicker by remember { mutableStateOf(false) }
@@ -102,16 +116,19 @@ fun PreferencesScreen(
     var showCloudBackupModal by remember { mutableStateOf(false) }
     var showArchivedHabitsSheet by remember { mutableStateOf(false) }
     var trackerToDeletePermanently by remember { mutableStateOf<com.example.ui.TrackerConfig?>(null) }
+    val jsonBackupController = rememberJsonBackupController(
+        viewModel = viewModel,
+        onStatus = { msg -> Toast.makeText(context, msg, Toast.LENGTH_SHORT).show() }
+    )
     val archivedTrackers by viewModel.archivedTrackers.collectAsState()
     val activeTrackers by viewModel.trackers.collectAsState()
     val customReminderCount = remember(activeTrackers) { activeTrackers.count { it.reminderEnabled } }
-    val googleEmail by viewModel.googleAccountEmail.collectAsState()
     val lastBackupTime by viewModel.lastCloudBackupTime.collectAsState()
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(bgColor)
+            .background(if (isGlass) Color.Transparent else bgColor)
             .padding(horizontal = 16.dp)
     ) {
         Column(
@@ -131,26 +148,35 @@ fun PreferencesScreen(
                 modifier = Modifier.padding(vertical = 8.dp)
             )
 
+            StaggeredReveal(index = 0) {
             Card(
                 colors = CardDefaults.cardColors(containerColor = cardBgColor),
-                border = BorderStroke(0.5.dp, borderColor),
+                border = cardStroke,
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 8.dp)
+                    .surface3DCard(
+                        shape = RoundedCornerShape(16.dp),
+                        isLight = isLight,
+                        primaryColor = primaryColor,
+                        isGlass = isGlass,
+                        elevationDp = 6.dp
+                    )
             ) {
                 Column {
                     val currentThemeName = com.example.ui.ThemeData.ALL_THEMES.find { it.id == selectedTheme }?.name ?: "Custom"
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .springPressScale(0.98f)
                             .clickable { showThemePicker = true }
-                            .padding(horizontal = 20.dp, vertical = 16.dp),
+                            .padding(horizontal = 16.dp, vertical = 16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(modifier = Modifier.size(18.dp).clip(CircleShape).background(primaryColor))
-                        Spacer(modifier = Modifier.width(14.dp))
-                        Text("Theme", fontFamily = appFont, fontSize = 15.sp, color = textColor, modifier = Modifier.weight(1f))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text("Theme Studio", fontFamily = appFont, fontSize = 15.sp, color = textColor, modifier = Modifier.weight(1f))
                         Text(currentThemeName, fontFamily = appFont, fontSize = 13.sp, color = secondaryTextColor)
                         Spacer(modifier = Modifier.width(8.dp))
                         Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = secondaryTextColor, modifier = Modifier.size(18.dp))
@@ -158,23 +184,14 @@ fun PreferencesScreen(
 
                     HorizontalDivider(color = neutralStroke, thickness = 0.5.dp)
 
-                    val currentFontName = listOf(
-                        "cursive"        to "Cursive",
-                        "serif"          to "Serif",
-                        "monospace"      to "Monospace",
-                        "sans_serif"     to "Sans Serif",
-                        "default"        to "Default",
-                        "jetbrains_mono" to "JetBrains Mono",
-                        "space_grotesk"  to "Space Grotesk",
-                        "comfortaa"      to "Comfortaa",
-                        "nunito"         to "Nunito"
-                    ).find { it.first == selectedFont }?.second ?: "Default"
-                    
+                    val currentFontName = ThemeStyles.getFontDisplayName(selectedFont)
+
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .springPressScale(0.98f)
                             .clickable { showFontPicker = true }
-                            .padding(horizontal = 20.dp, vertical = 16.dp),
+                            .padding(horizontal = 16.dp, vertical = 16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text("Font", fontFamily = appFont, fontSize = 15.sp, color = textColor, modifier = Modifier.weight(1f))
@@ -184,14 +201,16 @@ fun PreferencesScreen(
                     }
                     if (selectedTheme == "custom") {
                         HorizontalDivider(color = neutralStroke, thickness = 0.5.dp)
-                        Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)) {
                             Text("Accent Color", fontFamily = appFont, fontSize = 13.sp, color = secondaryTextColor)
                             Spacer(modifier = Modifier.height(8.dp))
                             CustomColorPicker(
                                 appFont = appFont,
                                 initialHex = customHex,
-                                onColorChanged = { viewModel.setCustomPrimaryColorHex(it) },
-                                fontFamily = appFont
+                                textColor = textColor,
+                                secondaryTextColor = secondaryTextColor,
+                                borderColor = borderColor,
+                                onColorChanged = { viewModel.setCustomPrimaryColorHex(it) }
                             )
                             Spacer(modifier = Modifier.height(24.dp))
                             Text("Background Color", fontFamily = appFont, fontSize = 13.sp, color = secondaryTextColor)
@@ -199,21 +218,32 @@ fun PreferencesScreen(
                             CustomColorPicker(
                                 appFont = appFont,
                                 initialHex = customBgHex,
-                                onColorChanged = { viewModel.setCustomBackgroundColorHex(it) },
-                                fontFamily = appFont
+                                textColor = textColor,
+                                secondaryTextColor = secondaryTextColor,
+                                borderColor = borderColor,
+                                onColorChanged = { viewModel.setCustomBackgroundColorHex(it) }
                             )
                         }
                     }
                 }
             }
+            }
             
+            StaggeredReveal(index = 1) {
             Card(
                 colors = CardDefaults.cardColors(containerColor = cardBgColor),
-                border = BorderStroke(0.5.dp, borderColor),
+                border = cardStroke,
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 8.dp)
+                    .surface3DCard(
+                        shape = RoundedCornerShape(16.dp),
+                        isLight = isLight,
+                        primaryColor = primaryColor,
+                        isGlass = isGlass,
+                        elevationDp = 6.dp
+                    )
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
@@ -234,24 +264,56 @@ fun PreferencesScreen(
                             "square"         to "Square",
                             "circle"         to "Circle",
                             "squircle"       to "Squircle",
-                            "pill"           to "Pill"
+                            "pill"           to "Pill",
+                            "diamond"        to "Diamond"
                         )
                         shapeOptions.forEach { (sKey, sLabel) ->
                             val isSelected = calendarCellShapeName == sKey
                             val shapeObj = ThemeStyles.getCalendarCellShape(sKey)
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { viewModel.setCalendarCellShape(sKey) }) {
+                            val itemScale by animateFloatAsState(
+                                targetValue = if (isSelected) 1.06f else 1f,
+                                animationSpec = MotionSpecs.BouncyPopSpring,
+                                label = "shape_scale_$sKey"
+                            )
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .scale(itemScale)
+                                    .springPressScale(0.92f)
+                                    .clickable { viewModel.setCalendarCellShape(sKey) }
+                            ) {
                                 Box(
                                     modifier = Modifier
                                         .size(48.dp)
+                                        .then(
+                                            if (isSelected) {
+                                                Modifier.surface3DCard(
+                                                    shape = shapeObj,
+                                                    isLight = isLight,
+                                                    primaryColor = primaryColor,
+                                                    isGlass = isGlass,
+                                                    elevationDp = 4.dp
+                                                )
+                                            } else {
+                                                Modifier.recessedWell(shapeObj, isLight = isLight)
+                                            }
+                                        )
                                         .clip(shapeObj)
-                                        .background(if (isSelected) primaryColor.copy(alpha = 0.12f) else cardBgColor)
+                                        .background(if (isSelected) primaryColor.copy(alpha = 0.14f) else cardBgColor)
                                         .border(if (isSelected) 2.dp else 1.5.dp, primaryColor, shapeObj)
                                 )
-                                Text(sLabel, color = if(isSelected) textColor else secondaryTextColor, fontSize = 10.sp, fontFamily = appFont, modifier = Modifier.padding(top=6.dp))
+                                Text(
+                                    sLabel,
+                                    color = if (isSelected) textColor else secondaryTextColor,
+                                    fontSize = 10.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    fontFamily = appFont,
+                                    modifier = Modifier.padding(top = 6.dp)
+                                )
                             }
                         }
                     }
-                    
+
                     Text("Checkmark Style", color = secondaryTextColor, fontSize = 12.sp, fontFamily = appFont, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
                     androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         val checkOptions = listOf(
@@ -267,110 +329,92 @@ fun PreferencesScreen(
                             val (cKey, cLabel) = checkOptions[index]
                             val isSelected = checkmarkStyleName == cKey
                             val cellShapeObj = ThemeStyles.getCalendarCellShape(calendarCellShapeName)
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { viewModel.setCheckmarkStyle(cKey) }) {
+                            val checkScale by animateFloatAsState(
+                                targetValue = if (isSelected) 1.06f else 1f,
+                                animationSpec = MotionSpecs.BouncyPopSpring,
+                                label = "check_scale_$cKey"
+                            )
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .scale(checkScale)
+                                    .springPressScale(0.92f)
+                                    .clickable { viewModel.setCheckmarkStyle(cKey) }
+                            ) {
                                 Box(
                                     modifier = Modifier
                                         .size(48.dp)
+                                        .then(
+                                            if (isSelected) {
+                                                Modifier.surface3DCard(
+                                                    shape = cellShapeObj,
+                                                    isLight = isLight,
+                                                    primaryColor = primaryColor,
+                                                    isGlass = isGlass,
+                                                    elevationDp = 4.dp
+                                                )
+                                            } else {
+                                                Modifier.recessedWell(cellShapeObj, isLight = isLight)
+                                            }
+                                        )
                                         .clip(cellShapeObj)
                                         .background(primaryColor.copy(alpha = if (cKey == "filled") 0.22f else 0.15f))
-                                        .drawBehind {
-                                            val topRightRadius = (size.minDimension * 0.85f).coerceAtLeast(1f)
-                                            drawRect(
-                                                brush = androidx.compose.ui.graphics.Brush.radialGradient(
-                                                    colors = listOf(
-                                                        primaryColor.copy(alpha = 0.28f),
-                                                        primaryColor.copy(alpha = 0.10f),
-                                                        Color.Transparent
-                                                    ),
-                                                    center = androidx.compose.ui.geometry.Offset(size.width, 0f),
-                                                    radius = topRightRadius
-                                                )
-                                            )
-                                            val bottomLeftRadius = (size.minDimension * 0.65f).coerceAtLeast(1f)
-                                            drawRect(
-                                                brush = androidx.compose.ui.graphics.Brush.radialGradient(
-                                                    colors = listOf(
-                                                        primaryColor.copy(alpha = 0.16f),
-                                                        Color.Transparent
-                                                    ),
-                                                    center = androidx.compose.ui.geometry.Offset(0f, size.height),
-                                                    radius = bottomLeftRadius
-                                                )
-                                            )
-                                        }
-                                        .border(if (isSelected) 2.dp else 1.dp, if (isSelected) primaryColor else neutralStroke, cellShapeObj)
+                                        .completedCellCornerGlow(primaryColor)
+                                        .border(
+                                            width = if (isSelected) 2.dp else 1.dp,
+                                            color = if (isSelected) primaryColor else neutralStroke,
+                                            shape = cellShapeObj
+                                        )
                                 ) {
-                                    val dotSize = 8.dp
-                                    val dotAlpha = 0.75f
-                                    when (cKey) {
-                                        "tick" -> Icon(
-                                            Icons.Default.Check,
-                                            contentDescription = null,
-                                            tint = primaryColor.copy(alpha = dotAlpha),
-                                            modifier = Modifier
-                                                .size(dotSize + 4.dp)
-                                                .align(Alignment.TopEnd)
-                                                .offset(x = (-3).dp, y = 3.dp)
-                                        )
-                                        "cross" -> Icon(
-                                            Icons.Default.Close,
-                                            contentDescription = null,
-                                            tint = primaryColor.copy(alpha = dotAlpha),
-                                            modifier = Modifier
-                                                .size(dotSize + 4.dp)
-                                                .align(Alignment.TopEnd)
-                                                .offset(x = (-3).dp, y = 3.dp)
-                                        )
-                                        "dot" -> Box(
-                                            modifier = Modifier
-                                                .size(dotSize)
-                                                .align(Alignment.TopEnd)
-                                                .offset(x = (-4).dp, y = 4.dp)
-                                                .clip(CircleShape)
-                                                .background(primaryColor.copy(alpha = dotAlpha))
-                                        )
-                                        "number" -> Text(
-                                            text = "2",
-                                            color = primaryColor,
-                                            fontSize = 9.sp,
-                                            fontFamily = appFont,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier
-                                                .align(Alignment.TopEnd)
-                                                .offset(x = (-3).dp, y = 3.dp)
-                                        )
-                                        "ring" -> Box(
-                                            modifier = Modifier
-                                                .size(dotSize)
-                                                .align(Alignment.TopEnd)
-                                                .offset(x = (-4).dp, y = 4.dp)
-                                                .border(1.5.dp, primaryColor.copy(alpha = dotAlpha), CircleShape)
-                                        )
-                                        "bar" -> Box(
-                                            modifier = Modifier
-                                                .align(Alignment.BottomCenter)
-                                                .padding(bottom = 4.dp)
-                                                .height(2.5.dp)
-                                                .fillMaxWidth(0.45f)
-                                                .clip(RoundedCornerShape(2.dp))
-                                                .background(primaryColor.copy(alpha = dotAlpha))
-                                        )
-                                    }
+                                    CalendarCompletionIndicator(
+                                        dayNumber = 14,
+                                        totalSum = 2,
+                                        targetCount = 1,
+                                        isCompleted = true,
+                                        isPartial = false,
+                                        isToday = false,
+                                        isCurrentMonth = true,
+                                        hasNotes = false,
+                                        moodTag = null,
+                                        cellShapeKey = calendarCellShapeName,
+                                        cellShape = cellShapeObj,
+                                        checkmarkStyleName = cKey,
+                                        primaryColor = primaryColor,
+                                        textColor = textColor,
+                                        secondaryTextColor = secondaryTextColor,
+                                        appFont = appFont
+                                    )
                                 }
-                                Text(cLabel, color = if(isSelected) textColor else secondaryTextColor, fontSize = 10.sp, fontFamily = appFont, modifier = Modifier.padding(top=6.dp))
+                                Text(
+                                    cLabel,
+                                    color = if (isSelected) textColor else secondaryTextColor,
+                                    fontSize = 10.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    fontFamily = appFont,
+                                    modifier = Modifier.padding(top = 6.dp)
+                                )
                             }
                         }
                     }
                 }
             }
+            }
 
+            StaggeredReveal(index = 2) {
             Card(
                 colors = CardDefaults.cardColors(containerColor = cardBgColor),
-                border = BorderStroke(0.5.dp, borderColor),
+                border = cardStroke,
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 8.dp)
+                    .surface3DCard(
+                        shape = RoundedCornerShape(16.dp),
+                        isLight = isLight,
+                        primaryColor = primaryColor,
+                        isGlass = isGlass,
+                        elevationDp = 6.dp
+                    )
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Text(
@@ -410,7 +454,13 @@ fun PreferencesScreen(
                             fontFamily = appFont
                         )
                         Row(
-                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(neutralBg),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(IntrinsicSize.Max)
+                                .recessedWell(RoundedCornerShape(10.dp), isLight = isLight)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(neutralBg)
+                                .padding(3.dp),
                             horizontalArrangement = Arrangement.SpaceEvenly
                         ) {
                             listOf(0 to "12 AM", 1 to "1 AM", 2 to "2 AM", 3 to "3 AM", 4 to "4 AM").forEach { (h, label) ->
@@ -418,10 +468,12 @@ fun PreferencesScreen(
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
+                                        .fillMaxHeight()
+                                        .heightIn(min = 38.dp)
                                         .clip(RoundedCornerShape(10.dp))
                                         .background(if (isSelected) primaryColor else Color.Transparent)
                                         .clickable { viewModel.setDayRolloverHour(h) }
-                                        .padding(vertical = 8.dp),
+                                        .padding(horizontal = 4.dp, vertical = 8.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
@@ -429,7 +481,9 @@ fun PreferencesScreen(
                                         fontFamily = appFont,
                                         fontSize = 11.sp,
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                        color = if (isSelected) (if (primaryColor == Color.White) Color.Black else Color.White) else secondaryTextColor
+                                        color = if (isSelected) (if (primaryColor == Color.White) Color.Black else Color.White) else secondaryTextColor,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                             }
@@ -472,14 +526,22 @@ fun PreferencesScreen(
                     }
                 }
             }
+            }
 
             Card(
                 colors = CardDefaults.cardColors(containerColor = cardBgColor),
-                border = BorderStroke(0.5.dp, borderColor),
+                border = cardStroke,
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 8.dp)
+                    .surface3DCard(
+                        shape = RoundedCornerShape(16.dp),
+                        isLight = isLight,
+                        primaryColor = primaryColor,
+                        isGlass = isGlass,
+                        elevationDp = 6.dp
+                    )
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(
@@ -541,6 +603,7 @@ fun PreferencesScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .recessedWell(RoundedCornerShape(8.dp), isLight = isLight)
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(neutralBg)
                                 .clickable { showTimeDialog = true }
@@ -600,11 +663,18 @@ fun PreferencesScreen(
             // Local Snapshots & Backup Card
             Card(
                 colors = CardDefaults.cardColors(containerColor = cardBgColor),
-                border = BorderStroke(0.5.dp, borderColor),
+                border = cardStroke,
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 8.dp)
+                    .surface3DCard(
+                        shape = RoundedCornerShape(16.dp),
+                        isLight = isLight,
+                        primaryColor = primaryColor,
+                        isGlass = isGlass,
+                        elevationDp = 6.dp
+                    )
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(
@@ -640,17 +710,69 @@ fun PreferencesScreen(
                         }
                     }
 
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(IntrinsicSize.Max),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { jsonBackupController.openExport() },
+                            shape = DesignTokens.ControlShape,
+                            border = BorderStroke(0.8.dp, borderColor),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .heightIn(min = 48.dp)
+                        ) {
+                            Text(
+                                "📄 Export JSON",
+                                fontFamily = appFont,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = textColor,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = { jsonBackupController.openImportPaste() },
+                            shape = DesignTokens.ControlShape,
+                            border = BorderStroke(0.8.dp, borderColor),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .heightIn(min = 48.dp)
+                        ) {
+                            Text(
+                                "📂 Import JSON",
+                                fontFamily = appFont,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = textColor,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
                     Button(
                         onClick = { showCloudBackupModal = true },
                         colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = innerDarkText),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        shape = DesignTokens.ControlShape,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
                     ) {
                         Text(
-                            text = "💾 Manage Snapshots & JSON Backups",
+                            text = "💾 Manage Snapshots & Restore Points",
                             fontFamily = appFont,
                             fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
@@ -659,11 +781,18 @@ fun PreferencesScreen(
             // Archived Habits Card
             Card(
                 colors = CardDefaults.cardColors(containerColor = cardBgColor),
-                border = BorderStroke(0.5.dp, borderColor),
+                border = cardStroke,
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 8.dp)
+                    .surface3DCard(
+                        shape = RoundedCornerShape(16.dp),
+                        isLight = isLight,
+                        primaryColor = primaryColor,
+                        isGlass = isGlass,
+                        elevationDp = 6.dp
+                    )
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(
@@ -706,20 +835,24 @@ fun PreferencesScreen(
                             contentColor = if (primaryColor == Color.White) textColor else primaryColor
                         ),
                         shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp),
                         border = BorderStroke(0.5.dp, primaryColor.copy(alpha = 0.4f))
                     ) {
                         Text(
                             text = "📦 View & Manage Archived Habits (${archivedTrackers.size})",
                             fontFamily = appFont,
                             fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
             }
 
-            // Support the Developer / Tip Jar Card
+            // Supporter Edition & Bonus Vault Card
             Card(
                 colors = CardDefaults.cardColors(containerColor = cardBgColor),
                 border = BorderStroke(0.5.dp, if (isSupporter) primaryColor.copy(alpha = 0.5f) else borderColor),
@@ -727,6 +860,13 @@ fun PreferencesScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 8.dp)
+                    .surface3DCard(
+                        shape = RoundedCornerShape(16.dp),
+                        isLight = isLight,
+                        primaryColor = primaryColor,
+                        isGlass = isGlass,
+                        elevationDp = 6.dp
+                    )
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(
@@ -735,17 +875,17 @@ fun PreferencesScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(text = if (isSupporter) "💖" else "☕", fontSize = 20.sp)
+                            Text(text = if (isSupporter) "💖" else "✨", fontSize = 20.sp)
                             Column {
                                 Text(
-                                    text = if (isSupporter) "Generous Supporter ✨" else "Support the App",
+                                    text = if (isSupporter) "Supporter Edition Active ✨" else "Supporter Edition & Bonus Vault",
                                     color = textColor,
                                     fontSize = 15.sp,
                                     fontFamily = appFont,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    text = if (isSupporter) "Thank you for supporting offline development!" else "Buy a coffee & keep this app 100% free & ad-free",
+                                    text = if (isSupporter) "Bonus themes & freeze vault unlocked locally" else "Unlock bonus themes & extra streak freezes (100% offline & free)",
                                     color = secondaryTextColor,
                                     fontFamily = appFont,
                                     fontSize = 11.sp
@@ -758,13 +898,15 @@ fun PreferencesScreen(
                         onClick = { showDonateDialog = true },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = if (isSupporter) primaryColor.copy(alpha = 0.15f) else primaryColor,
-                            contentColor = if (isSupporter) primaryColor else (if (primaryColor == Color.White) Color.Black else Color.White)
+                            contentColor = if (isSupporter) primaryColor else (if (ThemeStyles.isLightColor(primaryColor)) Color.Black else Color.White)
                         ),
                         shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
                     ) {
                         Text(
-                            text = if (isSupporter) "💖 Supporter Active · View Tip Jar" else "☕ Buy Me a Coffee (Tip Jar)",
+                            text = if (isSupporter) "💖 View Supporter Vault & Perks" else "✨ Explore Supporter Edition & Vault",
                             fontFamily = appFont,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold
@@ -776,44 +918,97 @@ fun PreferencesScreen(
             // Interactive Guide & Tutorial Card
             Card(
                 colors = CardDefaults.cardColors(containerColor = cardBgColor),
-                border = BorderStroke(0.5.dp, borderColor),
+                border = cardStroke,
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 8.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showOnboardingDialog = true }
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(text = "💡", fontSize = 20.sp)
-                        Column {
-                            Text(
-                                text = "App Tutorial & Guide",
-                                color = textColor,
-                                fontSize = 14.sp,
-                                fontFamily = appFont,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "Replay the feature walkthrough and tips",
-                                color = secondaryTextColor,
-                                fontFamily = appFont,
-                                fontSize = 11.sp
-                            )
-                        }
-                    }
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = "View Guide",
-                        tint = secondaryTextColor,
-                        modifier = Modifier.size(20.dp)
+                    .surface3DCard(
+                        shape = RoundedCornerShape(16.dp),
+                        isLight = isLight,
+                        primaryColor = primaryColor,
+                        isGlass = isGlass,
+                        elevationDp = 6.dp
                     )
+            ) {
+                Column {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showOnboardingDialog = true }
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text(text = "💡", fontSize = 20.sp)
+                            Column {
+                                Text(
+                                    text = "App Tutorial & Guide",
+                                    color = textColor,
+                                    fontSize = 14.sp,
+                                    fontFamily = appFont,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "Replay the feature walkthrough and tips",
+                                    color = secondaryTextColor,
+                                    fontFamily = appFont,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = "View Guide",
+                            tint = secondaryTextColor,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    HorizontalDivider(color = neutralStroke, thickness = 0.5.dp)
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                if (isDemoTrackerLoaded) {
+                                    viewModel.clearDemoTracker()
+                                    Toast.makeText(context, "Demo tracker cleared.", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    viewModel.loadDemoTracker()
+                                    Toast.makeText(context, "Sample Demo Tracker loaded!", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text(text = "🌱", fontSize = 20.sp)
+                            Column {
+                                Text(
+                                    text = if (isDemoTrackerLoaded) "Clear Sample Demo Tracker" else "Load Sample Demo Tracker",
+                                    color = textColor,
+                                    fontSize = 14.sp,
+                                    fontFamily = appFont,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = if (isDemoTrackerLoaded) "Remove preloaded \"Morning Walk\" sample logs" else "Add \"Morning Walk\" with 45 days of organic logs",
+                                    color = secondaryTextColor,
+                                    fontFamily = appFont,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = "Toggle Demo Tracker",
+                            tint = secondaryTextColor,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
         }
@@ -824,7 +1019,7 @@ fun PreferencesScreen(
 
             Dialog(onDismissRequest = { showTimeDialog = false }) {
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = cardBgColor),
+                    colors = CardDefaults.cardColors(containerColor = modalBgColor),
                     border = BorderStroke(1.dp, borderColor),
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.fillMaxWidth().padding(16.dp)
@@ -854,7 +1049,7 @@ fun PreferencesScreen(
                                         Icon(Icons.Default.KeyboardArrowDown, "Dec Hour", tint = secondaryTextColor)
                                     }
                                     Text(
-                                        text = String.format("%02d", hourIn),
+                                        text = String.format(Locale.US, "%02d", hourIn),
                                         fontSize = 28.sp,
                                         color = textColor,
                                         fontWeight = FontWeight.Bold,
@@ -881,7 +1076,7 @@ fun PreferencesScreen(
                                         Icon(Icons.Default.KeyboardArrowDown, "Dec Min", tint = secondaryTextColor)
                                     }
                                     Text(
-                                        text = String.format("%02d", minIn),
+                                        text = String.format(Locale.US, "%02d", minIn),
                                         fontSize = 28.sp,
                                         color = textColor,
                                         fontFamily = appFont,
@@ -897,26 +1092,30 @@ fun PreferencesScreen(
                         Spacer(modifier = Modifier.height(18.dp))
 
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceEvenly
+                            modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            TextButton(onClick = { showTimeDialog = false }) {
-                                Text(text = "Cancel", color = secondaryTextColor, fontFamily = appFont)
+                            TextButton(
+                                onClick = { showTimeDialog = false },
+                                modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 48.dp)
+                            ) {
+                                Text(text = "Cancel", color = secondaryTextColor, fontFamily = appFont, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                             Button(
                                 onClick = {
-                                    val formatted = String.format("%02d:%02d", hourIn, minIn)
+                                    val formatted = String.format(Locale.US, "%02d:%02d", hourIn, minIn)
                                     viewModel.setReminderTime(formatted)
                                     if (remindersEnabled) {
                                         ReminderManager.scheduleReminder(context, formatted)
                                     }
-                                            Toast.makeText(context, "Reminder time updated to $formatted!", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Reminder time updated to $formatted!", Toast.LENGTH_SHORT).show()
                                     showTimeDialog = false
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = innerDarkText),
-                                shape = RoundedCornerShape(8.dp)
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 48.dp)
                             ) {
-                                Text(text = "Save", fontWeight = FontWeight.Bold, fontFamily = appFont)
+                                Text(text = "Save", fontWeight = FontWeight.Bold, fontFamily = appFont, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }
@@ -957,6 +1156,18 @@ fun PreferencesScreen(
             )
         }
 
+        JsonBackupDialogsHost(
+            controller = jsonBackupController,
+            selectedTheme = selectedTheme,
+            primaryColor = primaryColor,
+            cardBgColor = modalBgColor,
+            borderColor = borderColor,
+            textColor = textColor,
+            secondaryTextColor = secondaryTextColor,
+            appFont = appFont,
+            onStatus = { msg -> Toast.makeText(context, msg, Toast.LENGTH_SHORT).show() }
+        )
+
         ArchivedHabitsSheet(
             visible = showArchivedHabitsSheet,
             onDismiss = { showArchivedHabitsSheet = false },
@@ -969,7 +1180,7 @@ fun PreferencesScreen(
             primaryColor = primaryColor,
             textColor = textColor,
             secondaryTextColor = secondaryTextColor,
-            cardBgColor = cardBgColor,
+            cardBgColor = modalBgColor,
             borderColor = borderColor
         )
 
@@ -983,7 +1194,7 @@ fun PreferencesScreen(
             primaryColor = primaryColor,
             textColor = textColor,
             secondaryTextColor = secondaryTextColor,
-            cardBgColor = cardBgColor,
+            cardBgColor = modalBgColor,
             borderColor = borderColor
         )
     }
@@ -993,47 +1204,45 @@ fun PreferencesScreen(
 fun CustomColorPicker(
     appFont: androidx.compose.ui.text.font.FontFamily,
     initialHex: String?,
-    onColorChanged: (String) -> Unit,
-    fontFamily: FontFamily
+    textColor: Color = Color.White,
+    secondaryTextColor: Color = Color.Gray,
+    borderColor: Color = Color.DarkGray,
+    onColorChanged: (String) -> Unit
 ) {
-    var hue by remember { mutableStateOf(0f) }
+    var hue by remember { mutableStateOf(260f) }
     var value by remember { mutableStateOf(1f) }
-    var hexInput by remember { mutableStateOf("") }
-    
+    var hexInput by remember { mutableStateOf(initialHex ?: "#A855F7") }
+
     LaunchedEffect(initialHex) {
-        if (initialHex != null) {
+        if (!initialHex.isNullOrBlank()) {
             try {
-                val color = android.graphics.Color.parseColor(initialHex)
+                val color = initialHex.toColorInt()
                 val hsv = FloatArray(3)
                 android.graphics.Color.colorToHSV(color, hsv)
                 hue = hsv[0]
                 value = hsv[2]
                 hexInput = initialHex
-            } catch (e: Exception) {}
-        } else {
-            hue = 260f
-            hexInput = "#A855F7"
-            onColorChanged(hexInput)
+            } catch (_: Exception) {}
         }
     }
-    
+
     val currentColor = Color.hsv(hue, 1f, value)
-    
-    Column(modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
+
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
         var canvasWidth by remember { mutableStateOf(1f) }
-        Canvas(modifier = Modifier.fillMaxWidth().height(30.dp).pointerInput(Unit) {
+        Canvas(modifier = Modifier.fillMaxWidth().height(32.dp).recessedWell(RoundedCornerShape(8.dp), isLight = ThemeStyles.isLightColor(textColor).not()).clip(RoundedCornerShape(8.dp)).pointerInput(Unit) {
             detectTapGestures { offset ->
                 val x = offset.x.coerceIn(0f, canvasWidth)
                 hue = (x / canvasWidth) * 360f
-                val hex = String.format("#%06X", (0xFFFFFF and Color.hsv(hue, 1f, value).toArgb()))
+                val hex = String.format(Locale.US, "#%06X", (0xFFFFFF and Color.hsv(hue, 1f, value).toArgb()))
                 hexInput = hex
                 onColorChanged(hex)
             }
         }.pointerInput(Unit) {
-            detectDragGestures { change, _ -> 
+            detectDragGestures { change, _ ->
                 val x = change.position.x.coerceIn(0f, canvasWidth)
                 hue = (x / canvasWidth) * 360f
-                val hex = String.format("#%06X", (0xFFFFFF and Color.hsv(hue, 1f, value).toArgb()))
+                val hex = String.format(Locale.US, "#%06X", (0xFFFFFF and Color.hsv(hue, 1f, value).toArgb()))
                 hexInput = hex
                 onColorChanged(hex)
             }
@@ -1048,47 +1257,66 @@ fun CustomColorPicker(
                 )
             }
             val selectorX = (hue / 360f) * size.width
-            drawLine(Color.White, androidx.compose.ui.geometry.Offset(selectorX, 0f), androidx.compose.ui.geometry.Offset(selectorX, size.height), strokeWidth = 6f)
+            drawLine(
+                color = if (ThemeStyles.isLightColor(Color.hsv(hue, 1f, 1f))) Color.Black else Color.White,
+                start = androidx.compose.ui.geometry.Offset(selectorX, 0f),
+                end = androidx.compose.ui.geometry.Offset(selectorX, size.height),
+                strokeWidth = 6f
+            )
         }
-        
-        Spacer(Modifier.height(16.dp))
-        
-        Text("Brightness", color = Color.Gray, fontSize = 12.sp, fontFamily = appFont)
+
+        Spacer(Modifier.height(14.dp))
+
+        Text("Brightness", color = secondaryTextColor, fontSize = 12.sp, fontFamily = appFont)
         Slider(
             value = value,
-            onValueChange = { 
-                value = it 
-                val hex = String.format("#%06X", (0xFFFFFF and Color.hsv(hue, 1f, value).toArgb()))
+            onValueChange = {
+                value = it
+                val hex = String.format(Locale.US, "#%06X", (0xFFFFFF and Color.hsv(hue, 1f, value).toArgb()))
                 hexInput = hex
                 onColorChanged(hex)
             },
             valueRange = 0f..1f,
-            colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = currentColor)
+            colors = SliderDefaults.colors(
+                thumbColor = currentColor,
+                activeTrackColor = currentColor,
+                inactiveTrackColor = borderColor.copy(alpha = 0.4f)
+            )
         )
-        
-        Spacer(Modifier.height(16.dp))
-        
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Box(Modifier.size(40.dp).clip(CircleShape).background(currentColor).border(2.dp, Color.White, CircleShape))
+
+        Spacer(Modifier.height(12.dp))
+
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Box(
+                Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(currentColor)
+                    .border(2.dp, borderColor, CircleShape)
+            )
             OutlinedTextField(
                 value = hexInput,
                 onValueChange = {
                     hexInput = it
                     if (it.length == 7 && it.startsWith("#")) {
                         try {
-                            val c = android.graphics.Color.parseColor(it.uppercase())
+                            val c = it.uppercase().toColorInt()
                             val hsv = FloatArray(3)
                             android.graphics.Color.colorToHSV(c, hsv)
                             hue = hsv[0]
                             value = hsv[2]
                             onColorChanged(it.uppercase())
-                        } catch (e: Exception) {}
+                        } catch (_: Exception) {}
                     }
                 },
-                textStyle = TextStyle(color = Color.White, fontFamily = appFont),
+                label = { Text("Hex Color", fontFamily = appFont, fontSize = 11.sp, color = secondaryTextColor) },
+                textStyle = TextStyle(color = textColor, fontFamily = appFont),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = currentColor,
-                    unfocusedBorderColor = Color.DarkGray
+                    unfocusedBorderColor = borderColor,
+                    focusedTextColor = textColor,
+                    unfocusedTextColor = textColor,
+                    cursorColor = currentColor
                 ),
                 singleLine = true,
                 modifier = Modifier.weight(1f)

@@ -35,6 +35,9 @@
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
                 <action android:name="com.example.ACTION_UPDATE_HABIT_WIDGET" />
                 <action android:name="com.example.ACTION_WIDGET_CHECK_IN" />
+                <action android:name="com.example.ACTION_WIDGET_CHECK_IN_TRACKER" />
+                <action android:name="com.example.ACTION_WIDGET_PREV_HABIT" />
+                <action android:name="com.example.ACTION_WIDGET_NEXT_HABIT" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
@@ -54,7 +57,6 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:label="@string/app_name"
             android:theme="@style/Theme.MyApplication">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

@@ -19,3 +19,9 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+-keep class com.example.data.** { *; }
+-keepclassmembers class * extends androidx.room.RoomDatabase { *; }
+-keep class com.example.worker.ReminderReceiver
+-keep class com.example.widget.HabitAppWidgetProvider
+

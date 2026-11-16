@@ -30,10 +30,16 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.graphics.toColorInt
 import com.example.data.HabitEntry
 import com.example.ui.HabitViewModel
 import com.example.ui.ThemeStyles
 import com.example.ui.TrackerConfig
+import com.example.ui.components.AnimatedNumberText
+import com.example.ui.components.StaggeredReveal
+import com.example.ui.components.recessedWell
+import com.example.ui.components.springPressScale
+import com.example.ui.components.surface3DCard
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -56,15 +62,20 @@ fun UsageScreen(
     val appFont = ThemeStyles.getSelectedFontFamily(selectedFont)
     val customHex by viewModel.customPrimaryColor.collectAsState()
     val customBgHex by viewModel.customBackgroundColor.collectAsState()
+    val isGlass = ThemeStyles.isGlassTheme(selectedTheme)
+    val isDark = ThemeStyles.isThemeDark(selectedTheme, customBgHex)
     val bgColor = ThemeStyles.getBackgroundColor(selectedTheme, customBgHex)
     val cardBgColor = ThemeStyles.getCardBackgroundColor(selectedTheme, customBgHex)
-    val borderColor = ThemeStyles.getBorderColor(selectedTheme)
-    val textColor = ThemeStyles.getTextColor(selectedTheme)
-    val secondaryTextColor = ThemeStyles.getSecondaryTextColor(selectedTheme)
+    val modalBgColor = ThemeStyles.getOpaqueCardColor(selectedTheme, customBgHex)
+    val borderColor = ThemeStyles.getBorderColor(selectedTheme, customBgHex)
+    val cardStroke = ThemeStyles.getGlassBorderStroke(selectedTheme, customBgHex)
+    val textColor = ThemeStyles.getTextColor(selectedTheme, customBgHex)
+    val secondaryTextColor = ThemeStyles.getSecondaryTextColor(selectedTheme, customBgHex)
     val basePrimaryColor = ThemeStyles.getPrimaryColor(selectedTheme, customHex)
     val primaryColor = basePrimaryColor
 
-    val today = remember { LocalDate.now() }
+    val rolloverHour by viewModel.dayRolloverHour.collectAsState()
+    val today = remember(rolloverHour) { com.example.worker.ReminderManager.getEffectiveToday(rolloverHour) }
     val clipboardManager = LocalClipboardManager.current
     
     // Filtering states
@@ -121,7 +132,7 @@ fun UsageScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(bgColor)
+            .background(if (isGlass) Color.Transparent else bgColor)
             .padding(horizontal = 16.dp)
     ) {
         Column(
@@ -161,11 +172,15 @@ fun UsageScreen(
                     }
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     IconButton(
                         onClick = { showAddPastLogDialog = true },
                         modifier = Modifier
-                            .size(32.dp)
+                            .size(DesignTokens.HeaderActionSize)
+                            .springPressScale(pressedScale = 0.9f)
                             .clip(CircleShape)
                             .background(cardBgColor)
                             .border(0.5.dp, borderColor, CircleShape)
@@ -176,15 +191,20 @@ fun UsageScreen(
                     Button(
                         onClick = { showJournalModal = true },
                         colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
-                        shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                        shape = DesignTokens.ControlShape,
+                        modifier = Modifier
+                            .heightIn(min = DesignTokens.HeaderActionSize)
+                            .springPressScale(pressedScale = 0.94f),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
                     ) {
                         Text(
                             text = "✍️ Journal",
                             fontFamily = appFont,
-                            fontSize = 11.sp,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (primaryColor == Color.White) Color.Black else Color.White
+                            color = if (primaryColor == Color.White) Color.Black else Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
@@ -202,12 +222,13 @@ fun UsageScreen(
                 allTrackers.forEach { tracker ->
                     val isSelected = tracker.id == selectedTrackerId
                     val tAccent = tracker.accentColor?.let {
-                        try { Color(android.graphics.Color.parseColor(it)) } catch (e: Exception) { primaryColor }
+                        try { Color(it.toColorInt()) } catch (e: Exception) { primaryColor }
                     } ?: primaryColor
 
                     Box(
                         modifier = Modifier
-                            .height(36.dp)
+                            .heightIn(min = 36.dp)
+                            .springPressScale(pressedScale = 0.93f)
                             .clip(RoundedCornerShape(12.dp))
                             .background(if (isSelected) tAccent.copy(alpha = 0.2f) else cardBgColor)
                             .border(
@@ -216,7 +237,7 @@ fun UsageScreen(
                                 shape = RoundedCornerShape(12.dp)
                             )
                             .clickable { viewModel.selectTracker(tracker.id) }
-                            .padding(horizontal = 12.dp),
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -226,7 +247,9 @@ fun UsageScreen(
                                 fontFamily = appFont,
                                 fontSize = 12.sp,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                color = if (isSelected) tAccent else textColor
+                                color = if (isSelected) tAccent else textColor,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
@@ -241,8 +264,8 @@ fun UsageScreen(
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = secondaryTextColor, modifier = Modifier.size(18.dp)) },
                 trailingIcon = {
                     if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(24.dp)) {
-                            Icon(Icons.Default.Close, contentDescription = "Clear", tint = secondaryTextColor, modifier = Modifier.size(16.dp))
+                        IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(44.dp)) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear Search", tint = secondaryTextColor, modifier = Modifier.size(18.dp))
                         }
                     }
                 },
@@ -261,9 +284,10 @@ fun UsageScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 4.dp)
+                    .recessedWell(RoundedCornerShape(12.dp), isLight = !isDark)
             )
 
-            // Date Range & Tag Filter Chips — exactly 32.dp height for uniform vertical symmetry
+            // Date Range & Tag Filter Chips — dynamic min height for font scaling
             val rangeScroll = rememberScrollState()
             Row(
                 modifier = Modifier
@@ -277,12 +301,13 @@ fun UsageScreen(
                     val isSelected = selectedRangeTab == tab
                     Box(
                         modifier = Modifier
-                            .height(32.dp)
+                            .heightIn(min = 34.dp)
+                            .springPressScale(pressedScale = 0.92f)
                             .clip(RoundedCornerShape(10.dp))
                             .background(if (isSelected) primaryColor.copy(alpha = 0.15f) else Color.Transparent)
                             .border(if (isSelected) 1.dp else 0.5.dp, if (isSelected) primaryColor else borderColor, RoundedCornerShape(10.dp))
                             .clickable { selectedRangeTab = tab }
-                            .padding(horizontal = 10.dp),
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -290,20 +315,23 @@ fun UsageScreen(
                             fontFamily = appFont,
                             fontSize = 11.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isSelected) primaryColor else secondaryTextColor
+                            color = if (isSelected) primaryColor else secondaryTextColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
 
-                // Notes Only Filter Chip — exactly 32.dp height
+                // Notes Only Filter Chip
                 Box(
                     modifier = Modifier
-                        .height(32.dp)
+                        .heightIn(min = 34.dp)
+                        .springPressScale(pressedScale = 0.92f)
                         .clip(RoundedCornerShape(10.dp))
                         .background(if (filterNotesOnly) primaryColor.copy(alpha = 0.2f) else Color.Transparent)
                         .border(if (filterNotesOnly) 1.dp else 0.5.dp, if (filterNotesOnly) primaryColor else borderColor, RoundedCornerShape(10.dp))
                         .clickable { filterNotesOnly = !filterNotesOnly }
-                        .padding(horizontal = 10.dp),
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -311,22 +339,26 @@ fun UsageScreen(
                         fontFamily = appFont,
                         fontSize = 11.sp,
                         fontWeight = if (filterNotesOnly) FontWeight.Bold else FontWeight.Normal,
-                        color = if (filterNotesOnly) primaryColor else secondaryTextColor
+                        color = if (filterNotesOnly) primaryColor else secondaryTextColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
-                // Mood Filter Chips — exactly 32.dp x 32.dp
+                // Mood Filter Chips
                 listOf("😊", "🔥", "⚡", "🧘", "🌧️").forEach { mood ->
                     val isMoodActive = selectedMoodFilter == mood
                     Box(
                         modifier = Modifier
-                            .size(32.dp)
+                            .defaultMinSize(minWidth = 34.dp, minHeight = 34.dp)
+                            .springPressScale(pressedScale = 0.88f)
                             .clip(RoundedCornerShape(10.dp))
                             .background(if (isMoodActive) primaryColor.copy(alpha = 0.25f) else Color.Transparent)
                             .border(if (isMoodActive) 1.dp else 0.5.dp, if (isMoodActive) primaryColor else borderColor, RoundedCornerShape(10.dp))
                             .clickable {
                                 selectedMoodFilter = if (isMoodActive) null else mood
-                            },
+                            }
+                            .padding(horizontal = 6.dp, vertical = 4.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(text = mood, fontSize = 12.sp)
@@ -334,37 +366,55 @@ fun UsageScreen(
                 }
             }
 
-            // Mini Summary Metric Bar
+            // Mini Summary Metric Bar (strict equal-thirds symmetry)
+            StaggeredReveal(index = 0) {
             Card(
                 colors = CardDefaults.cardColors(containerColor = cardBgColor),
-                border = BorderStroke(0.5.dp, borderColor),
-                shape = RoundedCornerShape(12.dp),
+                border = cardStroke,
+                shape = DesignTokens.CardShape,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 4.dp)
+                    .surface3DCard(
+                        shape = DesignTokens.CardShape,
+                        isLight = !isDark,
+                        primaryColor = primaryColor,
+                        isGlass = isGlass,
+                        elevationDp = 5.dp
+                    )
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                        .height(IntrinsicSize.Max)
+                        .padding(horizontal = 10.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Active Days", fontFamily = appFont, fontSize = 10.sp, color = secondaryTextColor)
-                        Text("$totalActiveDays", fontFamily = appFont, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = textColor)
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
+                    ) {
+                        Text("Active Days", fontFamily = appFont, fontSize = 10.sp, color = secondaryTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        AnimatedNumberText(value = totalActiveDays, fontFamily = appFont, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = textColor)
                     }
-                    Box(modifier = Modifier.width(1.dp).height(20.dp).background(borderColor.copy(alpha = 0.5f)))
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Total Check-ins", fontFamily = appFont, fontSize = 10.sp, color = secondaryTextColor)
-                        Text("$totalLoggedCount", fontFamily = appFont, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = primaryColor)
+                    Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(borderColor.copy(alpha = 0.5f)))
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
+                    ) {
+                        Text("Total Check-ins", fontFamily = appFont, fontSize = 10.sp, color = secondaryTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        AnimatedNumberText(value = totalLoggedCount, fontFamily = appFont, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = primaryColor)
                     }
-                    Box(modifier = Modifier.width(1.dp).height(20.dp).background(borderColor.copy(alpha = 0.5f)))
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Journals & Notes", fontFamily = appFont, fontSize = 10.sp, color = secondaryTextColor)
-                        Text("$totalNotesCount", fontFamily = appFont, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = textColor)
+                    Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(borderColor.copy(alpha = 0.5f)))
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
+                    ) {
+                        Text("Journals & Notes", fontFamily = appFont, fontSize = 10.sp, color = secondaryTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        AnimatedNumberText(value = totalNotesCount, fontFamily = appFont, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = textColor)
                     }
                 }
+            }
             }
 
             Spacer(modifier = Modifier.height(4.dp))
@@ -420,6 +470,7 @@ fun UsageScreen(
                             primaryColor = primaryColor,
                             cardBgColor = cardBgColor,
                             borderColor = borderColor,
+                            borderStroke = cardStroke,
                             textColor = textColor,
                             secondaryTextColor = secondaryTextColor,
                             onEdit = { entryToEdit = entry },
@@ -455,7 +506,7 @@ fun UsageScreen(
 
             AlertDialog(
                 onDismissRequest = { entryToEdit = null },
-                containerColor = cardBgColor,
+                containerColor = modalBgColor,
                 title = {
                     Text("Edit Log (${entry.dateString})", fontFamily = appFont, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = textColor)
                 },
@@ -507,7 +558,7 @@ fun UsageScreen(
                             )
                             entryToEdit = null
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = if (ThemeStyles.isThemeDark(selectedTheme)) Color.Black else Color.White)
+                        colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = if (isDark) Color.Black else Color.White)
                     ) {
                         Text("Save Changes", fontFamily = appFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
@@ -524,7 +575,7 @@ fun UsageScreen(
         entryToDelete?.let { entry ->
             AlertDialog(
                 onDismissRequest = { entryToDelete = null },
-                containerColor = cardBgColor,
+                containerColor = modalBgColor,
                 title = { Text("Delete Log?", fontFamily = appFont, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = textColor) },
                 text = {
                     Text(
@@ -561,7 +612,7 @@ fun UsageScreen(
 
             AlertDialog(
                 onDismissRequest = { showAddPastLogDialog = false },
-                containerColor = cardBgColor,
+                containerColor = modalBgColor,
                 title = { Text("Log Past Check-in", fontFamily = appFont, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = textColor) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -618,7 +669,7 @@ fun UsageScreen(
                                 showAddPastLogDialog = false
                             }
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = if (ThemeStyles.isThemeDark(selectedTheme)) Color.Black else Color.White)
+                        colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = if (isDark) Color.Black else Color.White)
                     ) {
                         Text("Add Log", fontFamily = appFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
@@ -642,6 +693,7 @@ fun EnhancedTimelineCard(
     primaryColor: Color,
     cardBgColor: Color,
     borderColor: Color,
+    borderStroke: BorderStroke = BorderStroke(0.5.dp, borderColor),
     textColor: Color,
     secondaryTextColor: Color,
     onEdit: () -> Unit,
@@ -670,13 +722,21 @@ fun EnhancedTimelineCard(
         notes.replace(Regex("\\[MOOD:[^\\]]+\\]"), "").trim()
     }
 
+    val isLightCard = !ThemeStyles.isLightColor(textColor)
     Card(
         colors = CardDefaults.cardColors(containerColor = cardBgColor),
-        border = BorderStroke(0.5.dp, borderColor),
-        shape = RoundedCornerShape(14.dp),
-        modifier = Modifier.fillMaxWidth()
+        border = borderStroke,
+        shape = DesignTokens.CardShape,
+        modifier = Modifier
+            .fillMaxWidth()
+            .surface3DCard(
+                shape = DesignTokens.CardShape,
+                isLight = isLightCard,
+                primaryColor = primaryColor,
+                elevationDp = 4.dp
+            )
     ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(modifier = Modifier.padding(DesignTokens.CardPadding), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             // Header Row: Date & Actions
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -733,12 +793,12 @@ fun EnhancedTimelineCard(
                         )
                     }
 
-                    IconButton(onClick = onEdit, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Default.Edit, contentDescription = "Edit", tint = secondaryTextColor, modifier = Modifier.size(14.dp))
+                    IconButton(onClick = onEdit, modifier = Modifier.size(44.dp).springPressScale(pressedScale = 0.88f)) {
+                        Icon(Icons.Default.Edit, contentDescription = "Edit Log", tint = secondaryTextColor, modifier = Modifier.size(18.dp))
                     }
 
-                    IconButton(onClick = onDelete, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Gray.copy(alpha = 0.7f), modifier = Modifier.size(14.dp))
+                    IconButton(onClick = onDelete, modifier = Modifier.size(44.dp).springPressScale(pressedScale = 0.88f)) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete Log", tint = secondaryTextColor.copy(alpha = 0.75f), modifier = Modifier.size(18.dp))
                     }
                 }
             }
@@ -748,6 +808,7 @@ fun EnhancedTimelineCard(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .springPressScale(pressedScale = 0.975f)
                         .clip(RoundedCornerShape(8.dp))
                         .background(primaryColor.copy(alpha = 0.06f))
                         .border(0.5.dp, primaryColor.copy(alpha = 0.2f), RoundedCornerShape(8.dp))

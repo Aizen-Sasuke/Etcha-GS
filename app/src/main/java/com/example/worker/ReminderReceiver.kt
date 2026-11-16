@@ -10,10 +10,14 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
+import androidx.core.net.toUri
 import com.example.MainActivity
+import com.example.R
 import com.example.data.AppDatabase
 import com.example.data.HabitEntry
 import com.example.data.Tracker
@@ -46,7 +50,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 } else {
                     list
                 }
-                prefs.edit().putString(KEY_PROCESSED_TOKENS, trimmed.joinToString("|")).apply()
+                prefs.edit { putString(KEY_PROCESSED_TOKENS, trimmed.joinToString("|")) }
                 return true
             }
         }
@@ -336,7 +340,7 @@ class ReminderReceiver : BroadcastReceiver() {
                     }
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.w("ReminderReceiver", "Error handling reminder broadcast: $action", e)
             } finally {
                 pendingResult?.finish()
             }
@@ -425,7 +429,7 @@ class ReminderReceiver : BroadcastReceiver() {
 
         val actionToken = UUID.randomUUID().toString()
         val builder = NotificationCompat.Builder(context, ReminderManager.CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_popup_reminder)
+            .setSmallIcon(R.drawable.ic_notification_habit)
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
@@ -493,7 +497,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 builder.build()
             )
         } catch (e: SecurityException) {
-            e.printStackTrace()
+            Log.w("ReminderReceiver", "Notification permission missing when posting per-habit reminder", e)
         }
     }
 
@@ -523,7 +527,7 @@ class ReminderReceiver : BroadcastReceiver() {
         val undoIntent = Intent(context, ReminderReceiver::class.java).apply {
             action = ReminderManager.ACTION_NOTIFICATION_UNDO
             setPackage(context.packageName)
-            data = Uri.parse("etchags://notification-undo/${Uri.encode(tracker.id)}")
+            data = "etchags://notification-undo/${Uri.encode(tracker.id)}".toUri()
             putExtra(ReminderManager.EXTRA_TRACKER_ID, tracker.id)
             putExtra(ReminderManager.EXTRA_DATE_STRING, outcome.dateString ?: "")
             putExtra(ReminderManager.EXTRA_ENTRY_ID, outcome.entryId ?: -1)
@@ -540,6 +544,7 @@ class ReminderReceiver : BroadcastReceiver() {
 
         val launchIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(ReminderManager.EXTRA_TRACKER_ID, tracker.id)
         }
         val contentPi = PendingIntent.getActivity(
             context,
@@ -549,7 +554,7 @@ class ReminderReceiver : BroadcastReceiver() {
         )
 
         val notification = NotificationCompat.Builder(context, ReminderManager.CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_popup_reminder)
+            .setSmallIcon(R.drawable.ic_notification_habit)
             .setContentTitle(title)
             .setContentText(text)
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -566,7 +571,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 notification
             )
         } catch (e: SecurityException) {
-            e.printStackTrace()
+            Log.w("ReminderReceiver", "Notification permission missing when posting confirmation", e)
         }
     }
 
@@ -580,7 +585,7 @@ class ReminderReceiver : BroadcastReceiver() {
         val intent = Intent(context, ReminderReceiver::class.java).apply {
             this.action = action
             setPackage(context.packageName)
-            data = Uri.parse("etchags://notification-action/${Uri.encode(action)}/${Uri.encode(trackerId)}")
+            data = "etchags://notification-action/${Uri.encode(action)}/${Uri.encode(trackerId)}".toUri()
             putExtra(ReminderManager.EXTRA_TRACKER_ID, trackerId)
             putExtra(ReminderManager.EXTRA_ACTION_TOKEN, token)
         }
@@ -607,7 +612,7 @@ class ReminderReceiver : BroadcastReceiver() {
         )
 
         val notification = NotificationCompat.Builder(context, ReminderManager.CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_popup_reminder)
+            .setSmallIcon(R.drawable.ic_notification_habit)
             .setContentTitle(title)
             .setContentText(message)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
@@ -618,7 +623,7 @@ class ReminderReceiver : BroadcastReceiver() {
         try {
             notificationManager.notify(ReminderManager.GLOBAL_NOTIFICATION_ID, notification)
         } catch (e: SecurityException) {
-            e.printStackTrace()
+            Log.w("ReminderReceiver", "Notification permission missing when posting global reminder", e)
         }
     }
 }

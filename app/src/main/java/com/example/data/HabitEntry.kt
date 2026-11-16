@@ -15,7 +15,11 @@ import androidx.room.PrimaryKey
             onDelete = ForeignKey.CASCADE
         )
     ],
-    indices = [Index(value = ["trackerId"])]
+    indices = [
+        Index(value = ["trackerId"]),
+        Index(value = ["dateString"]),
+        Index(value = ["trackerId", "dateString"])
+    ]
 )
 data class HabitEntry(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,

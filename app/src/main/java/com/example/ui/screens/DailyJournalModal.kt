@@ -44,13 +44,13 @@ fun DailyJournalModal(
     val allEntries by viewModel.entries.collectAsState(initial = emptyList())
     val activeTracker by viewModel.activeTracker.collectAsState()
 
-    val cardBgColor = ThemeStyles.getCardBackgroundColor(selectedTheme, customBgHex)
-    val borderColor = ThemeStyles.getBorderColor(selectedTheme)
+    val cardBgColor = ThemeStyles.getOpaqueCardColor(selectedTheme, customBgHex)
+    val borderColor = ThemeStyles.getBorderColor(selectedTheme, customBgHex)
     val primaryColor = ThemeStyles.getPrimaryColor(selectedTheme, customHex)
     val appFont = ThemeStyles.getSelectedFontFamily(selectedFont)
-    val textColor = ThemeStyles.getTextColor(selectedTheme)
-    val secondaryTextColor = ThemeStyles.getSecondaryTextColor(selectedTheme)
-    val isLight = ThemeStyles.isLightTheme(selectedTheme)
+    val textColor = ThemeStyles.getTextColor(selectedTheme, customBgHex)
+    val secondaryTextColor = ThemeStyles.getSecondaryTextColor(selectedTheme, customBgHex)
+    val isLight = ThemeStyles.isLightTheme(selectedTheme, customBgHex)
 
     val targetDate = initialDate ?: viewModel.getEffectiveToday()
     val targetDateString = targetDate.toString()

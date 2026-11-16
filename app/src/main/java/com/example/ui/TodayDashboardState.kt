@@ -291,7 +291,7 @@ object TodayDashboardCalculator {
         val nextReminderText = when {
             earliestUpcomingTrigger != null -> {
                 val (triggerDt, tr) = earliestUpcomingTrigger
-                val timeFmt = String.format("%02d:%02d", triggerDt.hour, triggerDt.minute)
+                val timeFmt = String.format(Locale.US, "%02d:%02d", triggerDt.hour, triggerDt.minute)
                 "Next: ${tr.icon} ${tr.title} at $timeFmt"
             }
             globalRemindersEnabled && hasActionableHabitUsingGlobal -> {

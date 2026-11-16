@@ -1,13 +1,21 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -23,6 +31,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -33,6 +42,11 @@ import com.example.ui.ThemeStyles
 import com.example.ui.TodayDashboardState
 import com.example.ui.TodayHabitItem
 import com.example.ui.TodayHabitStatus
+import com.example.ui.components.AnimatedNumberText
+import com.example.ui.components.MotionSpecs
+import com.example.ui.components.recessedWell
+import com.example.ui.components.springPressScale
+import com.example.ui.components.surface3DCard
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -88,25 +102,34 @@ fun UnifiedTodayDashboardCard(
         dashboard.effectiveToday.format(DateTimeFormatter.ofPattern("EEE, MMM d", Locale.US))
     }
 
+    val isGlass = ThemeStyles.isGlassTheme(themeConfig.selectedTheme)
     Card(
         colors = CardDefaults.cardColors(containerColor = cardBgColor),
-        border = BorderStroke(0.75.dp, borderColor),
-        shape = RoundedCornerShape(18.dp),
+        border = ThemeStyles.getGlassBorderStroke(themeConfig.selectedTheme),
+        shape = DesignTokens.CardShape,
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 6.dp)
+            .surface3DCard(
+                shape = DesignTokens.CardShape,
+                isLight = isLight,
+                primaryColor = primaryColor,
+                isGlass = isGlass,
+                elevationDp = 6.dp
+            )
             .testTag("today_dashboard_card")
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
+                .padding(DesignTokens.CardPadding),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             // Header + Overall Progress Summary
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .springPressScale(pressedScale = 0.985f)
                     .clickable { isCardExpanded = !isCardExpanded },
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
@@ -115,26 +138,30 @@ fun UnifiedTodayDashboardCard(
                     modifier = Modifier.weight(1f).padding(end = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    @OptIn(ExperimentalLayoutApi::class)
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Text(
                             text = "Today Overview",
                             fontFamily = appFont,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
-                            color = textColor
+                            color = textColor,
+                            modifier = Modifier.align(Alignment.CenterVertically)
                         )
                         Text(
                             text = "· $dateHeader",
                             fontFamily = appFont,
                             fontSize = 12.sp,
-                            color = secondaryTextColor
+                            color = secondaryTextColor,
+                            modifier = Modifier.align(Alignment.CenterVertically)
                         )
                         if (dashboard.isTodayFrozen) {
                             Box(
                                 modifier = Modifier
+                                    .align(Alignment.CenterVertically)
                                     .clip(RoundedCornerShape(6.dp))
                                     .background(primaryColor.copy(alpha = 0.16f))
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
@@ -176,19 +203,30 @@ fun UnifiedTodayDashboardCard(
                             .padding(horizontal = 9.dp, vertical = 4.dp)
                             .testTag("today_overall_percentage")
                     ) {
-                        Text(
-                            text = if (dashboard.totalActiveCount == 0) "0%" else "$progressPercent%",
+                        AnimatedNumberText(
+                            value = if (dashboard.totalActiveCount == 0) 0 else progressPercent,
+                            suffix = "%",
                             fontFamily = appFont,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = primaryAccentTextColor
                         )
                     }
+                    val arrowRotation by animateFloatAsState(
+                        targetValue = if (isCardExpanded) 180f else 0f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessMedium
+                        ),
+                        label = "today_expand_arrow"
+                    )
                     Icon(
-                        imageVector = if (isCardExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        imageVector = Icons.Default.KeyboardArrowDown,
                         contentDescription = if (isCardExpanded) "Collapse Today Overview" else "Expand Today Overview",
                         tint = secondaryTextColor,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier
+                            .size(20.dp)
+                            .rotate(arrowRotation)
                     )
                 }
             }
@@ -199,21 +237,23 @@ fun UnifiedTodayDashboardCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(6.dp)
+                        .recessedWell(RoundedCornerShape(3.dp), isLight = isLight)
                         .clip(RoundedCornerShape(3.dp)),
                     color = primaryColor,
                     trackColor = borderColor.copy(alpha = 0.28f)
                 )
 
-                // Compact Status & Next Reminder Row
-                Row(
+                // Compact Status & Next Reminder Row (wraps cleanly on narrow/scaled screens)
+                @OptIn(ExperimentalLayoutApi::class)
+                FlowRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Row(
+                    @OptIn(ExperimentalLayoutApi::class)
+                    FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         if (filteredAttention.isNotEmpty()) {
                             DashboardStatChip(
@@ -245,7 +285,7 @@ fun UnifiedTodayDashboardCard(
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(3.dp),
-                            modifier = Modifier.padding(start = 6.dp)
+                            modifier = Modifier.padding(top = 2.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Notifications,
@@ -266,12 +306,17 @@ fun UnifiedTodayDashboardCard(
                 }
             }
 
-            AnimatedVisibility(visible = isCardExpanded) {
+            AnimatedVisibility(
+                visible = isCardExpanded,
+                enter = expandVertically(animationSpec = MotionSpecs.CardRevealSizeSpring) + fadeIn(tween(200)),
+                exit = shrinkVertically(animationSpec = MotionSpecs.CardRevealSizeSpring) + fadeOut(tween(140))
+            ) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (dashboard.totalActiveCount == 0) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .springPressScale(pressedScale = 0.97f)
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(borderColor.copy(alpha = 0.14f))
                                 .clickable { onAddTrackerClick() }
@@ -454,7 +499,15 @@ private fun TodayAttentionHabitRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .springPressScale(pressedScale = 0.975f)
             .heightIn(min = 52.dp)
+            .surface3DCard(
+                shape = RoundedCornerShape(12.dp),
+                isLight = isLight,
+                primaryColor = themeConfig.primaryColor,
+                isGlass = ThemeStyles.isGlassTheme(themeConfig.selectedTheme),
+                elevationDp = if (isSelected) 4.dp else 2.dp
+            )
             .clip(RoundedCornerShape(12.dp))
             .background(rowBg)
             .border(
@@ -524,11 +577,20 @@ private fun TodayAttentionHabitRow(
                     } else {
                         (item.weeklyCompletedDays.toFloat() / item.weeklyTarget.coerceAtLeast(1).toFloat()).coerceIn(0f, 1f)
                     }
+                    val animatedBarProgress by animateFloatAsState(
+                        targetValue = barProgress,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        ),
+                        label = "row_progress_${item.tracker.id}"
+                    )
                     LinearProgressIndicator(
-                        progress = { barProgress },
+                        progress = { animatedBarProgress },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(4.dp)
+                            .recessedWell(RoundedCornerShape(2.dp), isLight = isLight)
                             .clip(RoundedCornerShape(2.dp)),
                         color = themeConfig.primaryColor,
                         trackColor = themeConfig.borderColor.copy(alpha = 0.25f)
@@ -544,11 +606,13 @@ private fun TodayAttentionHabitRow(
                 containerColor = themeConfig.primaryColor,
                 contentColor = onPrimaryTextColor
             ),
-            shape = RoundedCornerShape(10.dp),
+            shape = DesignTokens.ControlShape,
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
             modifier = Modifier
-                .heightIn(min = 38.dp)
-                .defaultMinSize(minWidth = 48.dp, minHeight = 38.dp)
+                .widthIn(min = 84.dp)
+                .heightIn(min = DesignTokens.ActionButtonHeight)
+                .defaultMinSize(minWidth = 84.dp, minHeight = DesignTokens.ActionButtonHeight)
+                .springPressScale(pressedScale = 0.91f)
                 .testTag("dashboard_action_${item.tracker.id}")
         ) {
             Text(
@@ -583,7 +647,15 @@ private fun TodayAvoidanceHabitRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .springPressScale(pressedScale = 0.975f)
             .heightIn(min = 48.dp)
+            .surface3DCard(
+                shape = RoundedCornerShape(12.dp),
+                isLight = isLight,
+                primaryColor = themeConfig.primaryColor,
+                isGlass = ThemeStyles.isGlassTheme(themeConfig.selectedTheme),
+                elevationDp = if (isSelected) 4.dp else 2.dp
+            )
             .clip(RoundedCornerShape(12.dp))
             .background(rowBg)
             .border(
@@ -655,18 +727,27 @@ private fun CollapsibleDashboardGroup(
     testTagName: String,
     onItemClick: (TodayHabitItem) -> Unit
 ) {
+    val isLightTray = !ThemeStyles.isLightColor(themeConfig.textColor)
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .recessedWell(RoundedCornerShape(10.dp), isLight = isLightTray)
             .clip(RoundedCornerShape(10.dp))
             .background(themeConfig.borderColor.copy(alpha = 0.12f))
             .padding(horizontal = 10.dp, vertical = 4.dp)
     ) {
+        val groupArrowRot by animateFloatAsState(
+            targetValue = if (expanded) 180f else 0f,
+            animationSpec = MotionSpecs.BouncyPopSpring,
+            label = "group_arrow_$testTagName"
+        )
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .springPressScale(pressedScale = 0.985f)
                 .heightIn(min = 38.dp)
                 .clickable { onToggle() }
+                .padding(vertical = 4.dp)
                 .testTag(testTagName),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
@@ -676,17 +757,26 @@ private fun CollapsibleDashboardGroup(
                 fontFamily = themeConfig.appFont,
                 fontSize = 11.5.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = themeConfig.secondaryTextColor
+                color = themeConfig.secondaryTextColor,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).padding(end = 8.dp)
             )
             Icon(
-                imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                imageVector = Icons.Default.KeyboardArrowDown,
                 contentDescription = title,
                 tint = themeConfig.secondaryTextColor,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier
+                    .size(18.dp)
+                    .rotate(groupArrowRot)
             )
         }
 
-        AnimatedVisibility(visible = expanded) {
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(animationSpec = MotionSpecs.CardRevealSizeSpring) + fadeIn(tween(180)),
+            exit = shrinkVertically(animationSpec = MotionSpecs.CardRevealSizeSpring) + fadeOut(tween(140))
+        ) {
             Column(
                 modifier = Modifier.padding(bottom = 6.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -695,6 +785,7 @@ private fun CollapsibleDashboardGroup(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .springPressScale(pressedScale = 0.975f)
                             .heightIn(min = 40.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .clickable { onItemClick(item) }
@@ -766,7 +857,7 @@ fun TodayHabitDetailSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = themeConfig.cardBgColor
+        containerColor = themeConfig.modalBgColor
     ) {
         Column(
             modifier = Modifier
@@ -885,7 +976,7 @@ fun TodayHabitDetailSheet(
 
             // Primary Action Row
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Button(
@@ -900,6 +991,7 @@ fun TodayHabitDetailSheet(
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
                         .weight(1f)
+                        .fillMaxHeight()
                         .heightIn(min = 48.dp)
                         .testTag("detail_quick_action_button")
                 ) {
@@ -910,7 +1002,9 @@ fun TodayHabitDetailSheet(
                             else -> "Check In"
                         },
                         fontFamily = themeConfig.appFont,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
@@ -923,20 +1017,23 @@ fun TodayHabitDetailSheet(
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
                         .weight(1f)
+                        .fillMaxHeight()
                         .heightIn(min = 48.dp)
                 ) {
                     Text(
                         text = "✍️ Journal",
                         fontFamily = themeConfig.appFont,
                         color = themeConfig.textColor,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
 
             // Cross-Tab Navigation: History & Reports
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 OutlinedButton(
@@ -948,12 +1045,13 @@ fun TodayHabitDetailSheet(
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
                         .weight(1f)
+                        .fillMaxHeight()
                         .heightIn(min = 48.dp)
                         .testTag("detail_view_history_button")
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Icon(Icons.AutoMirrored.Filled.List, contentDescription = null, tint = primaryAccent, modifier = Modifier.size(16.dp))
-                        Text("History", fontFamily = themeConfig.appFont, color = themeConfig.textColor, fontWeight = FontWeight.SemiBold)
+                        Text("History", fontFamily = themeConfig.appFont, color = themeConfig.textColor, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
 
@@ -966,12 +1064,13 @@ fun TodayHabitDetailSheet(
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
                         .weight(1f)
+                        .fillMaxHeight()
                         .heightIn(min = 48.dp)
                         .testTag("detail_view_reports_button")
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Icon(Icons.Default.DateRange, contentDescription = null, tint = primaryAccent, modifier = Modifier.size(16.dp))
-                        Text("Reports", fontFamily = themeConfig.appFont, color = themeConfig.textColor, fontWeight = FontWeight.SemiBold)
+                        Text("Reports", fontFamily = themeConfig.appFont, color = themeConfig.textColor, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }

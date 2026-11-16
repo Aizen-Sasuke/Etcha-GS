@@ -39,6 +39,7 @@ import kotlinx.coroutines.launch
 import com.example.ui.HabitViewModel
 import com.example.ui.ThemeStyles
 import com.example.ui.CloudBackupSnapshot
+import com.example.ui.components.LiquidAmbientBackdrop
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,32 +52,27 @@ fun CloudBackupModal(
     val customHex by viewModel.customPrimaryColor.collectAsState()
     val customBgHex by viewModel.customBackgroundColor.collectAsState()
     val selectedFont by viewModel.selectedFont.collectAsState()
-    val isSupporter by viewModel.isSupporter.collectAsState()
-    
-    val googleEmail by viewModel.googleAccountEmail.collectAsState()
-    val googleName by viewModel.googleAccountName.collectAsState()
     val lastBackup by viewModel.lastCloudBackupTime.collectAsState()
-    val autoBackup by viewModel.autoCloudBackupEnabled.collectAsState()
     val snapshots by viewModel.cloudBackupSnapshots.collectAsState()
-    val allTrackers by viewModel.trackers.collectAsState()
-    val currentEntries by viewModel.getEntriesForExport().collectAsState(initial = emptyList())
 
     val bgColor = ThemeStyles.getBackgroundColor(selectedTheme, customBgHex)
     val cardBgColor = ThemeStyles.getCardBackgroundColor(selectedTheme, customBgHex)
-    val borderColor = ThemeStyles.getBorderColor(selectedTheme)
+    val modalBgColor = ThemeStyles.getOpaqueCardColor(selectedTheme, customBgHex)
+    val borderColor = ThemeStyles.getBorderColor(selectedTheme, customBgHex)
     val primaryColor = ThemeStyles.getPrimaryColor(selectedTheme, customHex)
     val appFont = ThemeStyles.getSelectedFontFamily(selectedFont)
-    val textColor = ThemeStyles.getTextColor(selectedTheme)
-    val secondaryTextColor = ThemeStyles.getSecondaryTextColor(selectedTheme)
+    val textColor = ThemeStyles.getTextColor(selectedTheme, customBgHex)
+    val secondaryTextColor = ThemeStyles.getSecondaryTextColor(selectedTheme, customBgHex)
+    val isDark = ThemeStyles.isThemeDark(selectedTheme, customBgHex)
 
     val clipboardManager = LocalClipboardManager.current
     var isBackingUp by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var snapshotToRestore by remember { mutableStateOf<CloudBackupSnapshot?>(null) }
-    var showRawJsonDialog by remember { mutableStateOf(false) }
-    var rawExportJson by remember { mutableStateOf("") }
-    var showImportDialog by remember { mutableStateOf(false) }
-    var importJsonText by remember { mutableStateOf("") }
+    val jsonBackupController = rememberJsonBackupController(
+        viewModel = viewModel,
+        onStatus = { statusMessage = it }
+    )
 
     var visible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { visible = true }
@@ -100,9 +96,14 @@ fun CloudBackupModal(
             exit = slideOutVertically { it } + fadeOut(tween(200)),
             modifier = Modifier.fillMaxSize()
         ) {
-            Box(modifier = Modifier.fillMaxSize().background(bgColor)) {
+            LiquidAmbientBackdrop(
+                selectedTheme = selectedTheme,
+                customPrimaryHex = customHex,
+                customBackgroundHex = customBgHex,
+                modifier = Modifier.fillMaxSize()
+            ) {
                 Column(modifier = Modifier.fillMaxSize()) {
-                    // Header Bar
+                    // Header Bar — symmetric 48dp left/right touch targets
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -111,7 +112,10 @@ fun CloudBackupModal(
                             .padding(horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(onClick = { closeAndDismiss() }) {
+                        IconButton(
+                            onClick = { closeAndDismiss() },
+                            modifier = Modifier.size(48.dp)
+                        ) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close", tint = textColor)
                         }
                         Text(
@@ -123,13 +127,16 @@ fun CloudBackupModal(
                             modifier = Modifier.weight(1f),
                             textAlign = TextAlign.Center
                         )
-                        IconButton(onClick = {
-                            isBackingUp = true
-                            viewModel.performCloudBackup { _, msg ->
-                                isBackingUp = false
-                                statusMessage = msg
-                            }
-                        }) {
+                        IconButton(
+                            onClick = {
+                                isBackingUp = true
+                                viewModel.performCloudBackup { _, msg ->
+                                    isBackingUp = false
+                                    statusMessage = msg
+                                }
+                            },
+                            modifier = Modifier.size(48.dp)
+                        ) {
                             Icon(Icons.Default.Refresh, contentDescription = "Create Snapshot", tint = primaryColor)
                         }
                     }
@@ -139,19 +146,19 @@ fun CloudBackupModal(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
-                            .padding(horizontal = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                            .padding(horizontal = DesignTokens.ScreenHorizontalPadding),
+                        verticalArrangement = Arrangement.spacedBy(DesignTokens.SectionSpacing),
                         contentPadding = PaddingValues(top = 8.dp, bottom = 40.dp)
                     ) {
                         // 1. Honest Storage Information Card
                         item {
                             Card(
                                 colors = CardDefaults.cardColors(containerColor = cardBgColor),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, borderColor),
-                                shape = RoundedCornerShape(16.dp),
+                                border = androidx.compose.foundation.BorderStroke(0.5.dp, borderColor),
+                                shape = DesignTokens.CardShape,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Column(modifier = Modifier.padding(16.dp)) {
+                                Column(modifier = Modifier.padding(DesignTokens.CardPadding)) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -192,9 +199,9 @@ fun CloudBackupModal(
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clip(RoundedCornerShape(12.dp))
+                                        .clip(DesignTokens.ControlShape)
                                         .background(primaryColor.copy(alpha = 0.15f))
-                                        .border(1.dp, primaryColor.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                                        .border(1.dp, primaryColor.copy(alpha = 0.4f), DesignTokens.ControlShape)
                                         .padding(12.dp)
                                 ) {
                                     Row(
@@ -203,7 +210,7 @@ fun CloudBackupModal(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(msg, fontFamily = appFont, fontSize = 12.sp, color = textColor, modifier = Modifier.weight(1f))
-                                        IconButton(onClick = { statusMessage = null }, modifier = Modifier.size(24.dp)) {
+                                        IconButton(onClick = { statusMessage = null }, modifier = Modifier.size(32.dp)) {
                                             Text("✕", fontSize = 12.sp, color = secondaryTextColor)
                                         }
                                     }
@@ -215,11 +222,11 @@ fun CloudBackupModal(
                         item {
                             Card(
                                 colors = CardDefaults.cardColors(containerColor = cardBgColor),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, borderColor),
-                                shape = RoundedCornerShape(16.dp),
+                                border = androidx.compose.foundation.BorderStroke(0.5.dp, borderColor),
+                                shape = DesignTokens.CardShape,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Column(modifier = Modifier.padding(DesignTokens.CardPadding), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -248,9 +255,11 @@ fun CloudBackupModal(
                                             }
                                         },
                                         enabled = !isBackingUp,
-                                        modifier = Modifier.fillMaxWidth(),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(min = 48.dp),
                                         colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = if (ThemeStyles.isThemeDark(selectedTheme)) Color.Black else Color.White),
-                                        shape = RoundedCornerShape(12.dp)
+                                        shape = DesignTokens.ControlShape
                                     ) {
                                         if (isBackingUp) {
                                             CircularProgressIndicator(modifier = Modifier.size(16.dp), color = if (ThemeStyles.isThemeDark(selectedTheme)) Color.Black else Color.White, strokeWidth = 2.dp)
@@ -272,7 +281,7 @@ fun CloudBackupModal(
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = secondaryTextColor,
-                                modifier = Modifier.padding(start = 4.dp, top = 8.dp)
+                                modifier = Modifier.padding(start = 4.dp)
                             )
                         }
 
@@ -281,7 +290,7 @@ fun CloudBackupModal(
                                 Card(
                                     colors = CardDefaults.cardColors(containerColor = cardBgColor.copy(alpha = 0.5f)),
                                     border = androidx.compose.foundation.BorderStroke(0.5.dp, borderColor),
-                                    shape = RoundedCornerShape(12.dp),
+                                    shape = DesignTokens.CardShape,
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Box(modifier = Modifier.padding(20.dp).fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -299,42 +308,42 @@ fun CloudBackupModal(
                             items(snapshots) { snap ->
                                 Card(
                                     colors = CardDefaults.cardColors(containerColor = cardBgColor),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, borderColor),
-                                    shape = RoundedCornerShape(14.dp),
+                                    border = androidx.compose.foundation.BorderStroke(0.5.dp, borderColor),
+                                    shape = DesignTokens.CardShape,
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Column(modifier = Modifier.padding(14.dp)) {
+                                    Column(modifier = Modifier.padding(DesignTokens.CardPadding)) {
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Column {
+                                            Column(modifier = Modifier.weight(1f)) {
                                                 Text(snap.displayDate, fontFamily = appFont, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = textColor)
                                                 Text("Device: ${snap.deviceName}", fontFamily = appFont, fontSize = 11.sp, color = secondaryTextColor)
                                             }
                                             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                                 IconButton(
                                                     onClick = { snapshotToRestore = snap },
-                                                    modifier = Modifier.size(32.dp)
+                                                    modifier = Modifier.size(48.dp)
                                                 ) {
-                                                    Text("📥", fontSize = 16.sp)
+                                                    Text("📥", fontSize = 18.sp)
                                                 }
                                                 IconButton(
                                                     onClick = { viewModel.deleteCloudSnapshot(snap.id) },
-                                                    modifier = Modifier.size(32.dp)
+                                                    modifier = Modifier.size(48.dp)
                                                 ) {
-                                                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Gray, modifier = Modifier.size(16.dp))
+                                                    Icon(Icons.Default.Delete, contentDescription = "Delete Snapshot", tint = secondaryTextColor, modifier = Modifier.size(18.dp))
                                                 }
                                             }
                                         }
 
-                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Spacer(modifier = Modifier.height(8.dp))
                                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(primaryColor.copy(alpha = 0.1f)).padding(horizontal = 8.dp, vertical = 3.dp)) {
+                                            Box(modifier = Modifier.clip(RoundedCornerShape(DesignTokens.SmallBadgeRadius)).background(primaryColor.copy(alpha = 0.1f)).padding(horizontal = 8.dp, vertical = 3.dp)) {
                                                 Text("${snap.totalTrackers} Habits", fontFamily = appFont, fontSize = 10.sp, color = primaryColor, fontWeight = FontWeight.SemiBold)
                                             }
-                                            Box(modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(secondaryTextColor.copy(alpha = 0.1f)).padding(horizontal = 8.dp, vertical = 3.dp)) {
+                                            Box(modifier = Modifier.clip(RoundedCornerShape(DesignTokens.SmallBadgeRadius)).background(secondaryTextColor.copy(alpha = 0.1f)).padding(horizontal = 8.dp, vertical = 3.dp)) {
                                                 Text("${snap.totalEntries} Total Logs", fontFamily = appFont, fontSize = 10.sp, color = textColor)
                                             }
                                         }
@@ -343,15 +352,15 @@ fun CloudBackupModal(
                             }
                         }
 
-                        // 4. Local File Backup Options
+                        // 4. Local File Backup Options (Full Backup JSON + File Picker)
                         item {
                             Text(
-                                text = "LOCAL FILE BACKUP (JSON)",
+                                text = "FULL PORTABLE JSON BACKUP",
                                 fontFamily = appFont,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = secondaryTextColor,
-                                modifier = Modifier.padding(start = 4.dp, top = 10.dp)
+                                modifier = Modifier.padding(start = 4.dp)
                             )
                         }
 
@@ -361,27 +370,25 @@ fun CloudBackupModal(
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 OutlinedButton(
-                                    onClick = {
-                                        rawExportJson = viewModel.exportBackupJson(currentEntries)
-                                        showRawJsonDialog = true
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                    shape = RoundedCornerShape(12.dp),
+                                    onClick = { jsonBackupController.openExport() },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .heightIn(min = 48.dp),
+                                    shape = DesignTokens.ControlShape,
                                     border = androidx.compose.foundation.BorderStroke(1.dp, borderColor)
                                 ) {
-                                    Text("📄 Export JSON", fontFamily = appFont, fontSize = 12.sp, color = textColor)
+                                    Text("📄 Export JSON", fontFamily = appFont, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = textColor)
                                 }
 
                                 OutlinedButton(
-                                    onClick = {
-                                        importJsonText = ""
-                                        showImportDialog = true
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                    shape = RoundedCornerShape(12.dp),
+                                    onClick = { jsonBackupController.openImportPaste() },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .heightIn(min = 48.dp),
+                                    shape = DesignTokens.ControlShape,
                                     border = androidx.compose.foundation.BorderStroke(1.dp, borderColor)
                                 ) {
-                                    Text("📂 Import JSON", fontFamily = appFont, fontSize = 12.sp, color = textColor)
+                                    Text("📂 Import JSON", fontFamily = appFont, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = textColor)
                                 }
                             }
                         }
@@ -392,7 +399,8 @@ fun CloudBackupModal(
                 snapshotToRestore?.let { snap ->
                     AlertDialog(
                         onDismissRequest = { snapshotToRestore = null },
-                        containerColor = cardBgColor,
+                        containerColor = modalBgColor,
+                        shape = DesignTokens.CardShape,
                         title = {
                             Text("Restore from Local Snapshot?", fontFamily = appFont, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = textColor)
                         },
@@ -413,7 +421,8 @@ fun CloudBackupModal(
                                         statusMessage = if (ok) "Successfully restored from ${s.displayDate}" else "Restore failed"
                                     }
                                 },
-                                colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = if (ThemeStyles.isThemeDark(selectedTheme)) Color.Black else Color.White)
+                                colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = if (isDark) Color.Black else Color.White),
+                                shape = DesignTokens.ControlShape
                             ) {
                                 Text("Confirm Restore", fontFamily = appFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                             }
@@ -426,114 +435,17 @@ fun CloudBackupModal(
                     )
                 }
 
-                // Raw JSON Export Dialog
-                if (showRawJsonDialog) {
-                    AlertDialog(
-                        onDismissRequest = { showRawJsonDialog = false },
-                        containerColor = cardBgColor,
-                        title = { Text("Backup JSON", fontFamily = appFont, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = textColor) },
-                        text = {
-                            Column {
-                                Text("Copy this JSON text or save it for offline safekeeping:", fontFamily = appFont, fontSize = 12.sp, color = secondaryTextColor)
-                                Spacer(modifier = Modifier.height(8.dp))
-                                OutlinedTextField(
-                                    value = rawExportJson,
-                                    onValueChange = {},
-                                    readOnly = true,
-                                    modifier = Modifier.fillMaxWidth().height(160.dp),
-                                    textStyle = androidx.compose.ui.text.TextStyle(fontFamily = appFont, fontSize = 10.sp)
-                                )
-                            }
-                        },
-                        confirmButton = {
-                            val context = LocalContext.current
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(
-                                    onClick = {
-                                        try {
-                                            val file = java.io.File(context.cacheDir, "habit_export.json")
-                                            file.writeText(rawExportJson)
-                                            val uri = androidx.core.content.FileProvider.getUriForFile(
-                                                context,
-                                                "${context.packageName}.fileprovider",
-                                                file
-                                            )
-                                            val intent = androidx.core.app.ShareCompat.IntentBuilder(context)
-                                                .setType("application/json")
-                                                .setStream(uri)
-                                                .setChooserTitle("Share Habit Backup")
-                                                .createChooserIntent()
-                                                .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                            context.startActivity(intent)
-                                            showRawJsonDialog = false
-                                        } catch (e: Exception) {
-                                            statusMessage = "Share failed: ${e.message}"
-                                        }
-                                    },
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, borderColor)
-                                ) {
-                                    Text("Share File", fontFamily = appFont, fontSize = 12.sp, color = textColor)
-                                }
-                                Button(
-                                    onClick = {
-                                        clipboardManager.setText(AnnotatedString(rawExportJson))
-                                        showRawJsonDialog = false
-                                        statusMessage = "Backup JSON copied to clipboard!"
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = if (ThemeStyles.isThemeDark(selectedTheme)) Color.Black else Color.White)
-                                ) {
-                                    Text("Copy", fontFamily = appFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                }
-                            }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { showRawJsonDialog = false }) {
-                                Text("Close", fontFamily = appFont, color = secondaryTextColor, fontSize = 12.sp)
-                            }
-                        }
-                    )
-                }
-
-                // Raw JSON Import Dialog
-                if (showImportDialog) {
-                    AlertDialog(
-                        onDismissRequest = { showImportDialog = false },
-                        containerColor = cardBgColor,
-                        title = { Text("Import Backup JSON", fontFamily = appFont, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = textColor) },
-                        text = {
-                            Column {
-                                Text("Paste your backup JSON below to restore:", fontFamily = appFont, fontSize = 12.sp, color = secondaryTextColor)
-                                Spacer(modifier = Modifier.height(8.dp))
-                                OutlinedTextField(
-                                    value = importJsonText,
-                                    onValueChange = { importJsonText = it },
-                                    placeholder = { Text("Paste JSON here...", fontFamily = appFont, fontSize = 12.sp) },
-                                    modifier = Modifier.fillMaxWidth().height(160.dp),
-                                    textStyle = androidx.compose.ui.text.TextStyle(fontFamily = appFont, fontSize = 11.sp)
-                                )
-                            }
-                        },
-                        confirmButton = {
-                            Button(
-                                onClick = {
-                                    if (importJsonText.isNotBlank()) {
-                                        val ok = viewModel.importBackupJson(importJsonText)
-                                        showImportDialog = false
-                                        statusMessage = if (ok) "Backup imported successfully!" else "Invalid JSON format"
-                                    }
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = if (ThemeStyles.isThemeDark(selectedTheme)) Color.Black else Color.White)
-                            ) {
-                                Text("Import Data", fontFamily = appFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                            }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { showImportDialog = false }) {
-                                Text("Cancel", fontFamily = appFont, color = secondaryTextColor, fontSize = 12.sp)
-                            }
-                        }
-                    )
-                }
+                JsonBackupDialogsHost(
+                    controller = jsonBackupController,
+                    selectedTheme = selectedTheme,
+                    primaryColor = primaryColor,
+                    cardBgColor = modalBgColor,
+                    borderColor = borderColor,
+                    textColor = textColor,
+                    secondaryTextColor = secondaryTextColor,
+                    appFont = appFont,
+                    onStatus = { statusMessage = it }
+                )
             }
         }
     }

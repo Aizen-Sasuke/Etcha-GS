@@ -7,7 +7,9 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.util.Log
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.net.toUri
 import com.example.data.AppDatabase
 import com.example.data.Tracker
 import java.time.DayOfWeek
@@ -78,7 +80,7 @@ object ReminderManager {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             try {
                 val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
-                    data = Uri.parse("package:${context.packageName}")
+                    data = "package:${context.packageName}".toUri()
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 context.startActivity(intent)
@@ -208,7 +210,7 @@ object ReminderManager {
         val uriScheme = if (isSnooze) "etchags://reminder-snooze/" else "etchags://reminder/"
         val intent = Intent(context, ReminderReceiver::class.java).apply {
             action = ACTION_HABIT_REMINDER
-            data = Uri.parse("$uriScheme${Uri.encode(trackerId)}")
+            data = "$uriScheme${Uri.encode(trackerId)}".toUri()
             putExtra(EXTRA_TRACKER_ID, trackerId)
             putExtra(EXTRA_IS_SNOOZE, isSnooze)
         }
@@ -317,7 +319,7 @@ object ReminderManager {
 
             val intent = Intent(context, ReminderReceiver::class.java).apply {
                 action = ACTION_GLOBAL_REMINDER
-                data = Uri.parse("etchags://reminder-global")
+                data = "etchags://reminder-global".toUri()
                 putExtra(EXTRA_TIME_STR, timeStr)
             }
             val pendingIntent = PendingIntent.getBroadcast(
@@ -331,14 +333,14 @@ object ReminderManager {
             val timeMillis = nextTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
             scheduleExactOrFallback(alarmManager, timeMillis, pendingIntent)
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.w("ReminderManager", "Failed to schedule global reminder", e)
         }
     }
 
     fun cancelReminder(context: Context) {
         val intent = Intent(context, ReminderReceiver::class.java).apply {
             action = ACTION_GLOBAL_REMINDER
-            data = Uri.parse("etchags://reminder-global")
+            data = "etchags://reminder-global".toUri()
         }
         val pendingIntent = PendingIntent.getBroadcast(
             context,

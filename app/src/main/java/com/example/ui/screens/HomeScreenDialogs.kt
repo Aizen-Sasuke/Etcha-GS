@@ -35,19 +35,23 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.toColorInt
 import com.example.data.HabitEntry
 import com.example.ui.HabitViewModel
 import com.example.ui.ThemeStyles
 import com.example.ui.TrackerConfig
+import com.example.ui.components.recessedWell
 import com.example.worker.ReminderManager
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -138,7 +142,11 @@ fun AddTrackerSheet(
                 Triple("bad", "Bad", "Avoidance, logging breaks streak")
             )
             Row(
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (ThemeStyles.isLightTheme(selectedTheme)) borderColor.copy(alpha = 0.2f) else Color(0xFF141414)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .recessedWell(RoundedCornerShape(12.dp), isLight = ThemeStyles.isLightTheme(selectedTheme))
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (ThemeStyles.isLightTheme(selectedTheme)) borderColor.copy(alpha = 0.2f) else Color(0xFF141414)),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
                 trackerTypes.forEach { (typeId, label, _) ->
@@ -162,7 +170,7 @@ fun AddTrackerSheet(
                 }
             }
 
-            // Routine / Time of Day
+            // Routine / Time of Day (balanced 2x2 grid for dynamic dimensions)
             Text(fontFamily = appFont, text = "Routine (Time of Day)", color = secondaryTextColor, fontSize = 12.sp, modifier = Modifier.align(Alignment.Start))
             val routineTypes = listOf(
                 "anytime" to "Anytime",
@@ -170,32 +178,50 @@ fun AddTrackerSheet(
                 "afternoon" to "☀️ Afternoon",
                 "evening" to "🌙 Evening"
             )
-            Row(
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (ThemeStyles.isLightTheme(selectedTheme)) borderColor.copy(alpha = 0.2f) else Color(0xFF141414)),
-                horizontalArrangement = Arrangement.SpaceEvenly
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .recessedWell(RoundedCornerShape(12.dp), isLight = ThemeStyles.isLightTheme(selectedTheme))
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (ThemeStyles.isLightTheme(selectedTheme)) borderColor.copy(alpha = 0.2f) else Color(0xFF141414))
+                    .padding(4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                routineTypes.forEach { (rKey, rLabel) ->
-                    val isSelected = newTimeOfDay == rKey
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (isSelected) primaryColor else Color.Transparent)
-                            .clickable { newTimeOfDay = rKey }
-                            .padding(vertical = 8.dp),
-                        contentAlignment = Alignment.Center
+                routineTypes.chunked(2).forEach { rowItems ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Text(fontFamily = appFont, 
-                            text = rLabel,
-                            color = if (isSelected) (if (primaryColor == Color.White) Color.Black else Color.White) else secondaryTextColor,
-                            fontSize = 11.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                        )
+                        rowItems.forEach { (rKey, rLabel) ->
+                            val isSelected = newTimeOfDay == rKey
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .heightIn(min = 42.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (isSelected) primaryColor else Color.Transparent)
+                                    .clickable { newTimeOfDay = rKey }
+                                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    fontFamily = appFont,
+                                    text = rLabel,
+                                    color = if (isSelected) (if (primaryColor == Color.White) Color.Black else Color.White) else secondaryTextColor,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
                     }
                 }
             }
 
-            // Frequency Schedule
+            // Frequency Schedule (balanced 2x2 grid for dynamic dimensions)
             Text(fontFamily = appFont, text = "Target Frequency", color = secondaryTextColor, fontSize = 12.sp, modifier = Modifier.align(Alignment.Start))
             val freqOptions = listOf(
                 "daily" to "Daily",
@@ -203,28 +229,45 @@ fun AddTrackerSheet(
                 "custom_days" to "Custom Days",
                 "weekly_quota" to "Weekly Target"
             )
-            Row(
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (ThemeStyles.isLightTheme(selectedTheme)) borderColor.copy(alpha = 0.2f) else Color(0xFF141414)),
-                horizontalArrangement = Arrangement.SpaceEvenly
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .recessedWell(RoundedCornerShape(12.dp), isLight = ThemeStyles.isLightTheme(selectedTheme))
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (ThemeStyles.isLightTheme(selectedTheme)) borderColor.copy(alpha = 0.2f) else Color(0xFF141414))
+                    .padding(4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                freqOptions.forEach { (fKey, fLabel) ->
-                    val isSelected = newFrequency == fKey
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (isSelected) primaryColor else Color.Transparent)
-                            .clickable { newFrequency = fKey }
-                            .padding(vertical = 8.dp),
-                        contentAlignment = Alignment.Center
+                freqOptions.chunked(2).forEach { rowItems ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Text(fontFamily = appFont, 
-                            text = fLabel,
-                            color = if (isSelected) (if (primaryColor == Color.White) Color.Black else Color.White) else secondaryTextColor,
-                            fontSize = 10.5.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            maxLines = 1
-                        )
+                        rowItems.forEach { (fKey, fLabel) ->
+                            val isSelected = newFrequency == fKey
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .heightIn(min = 42.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (isSelected) primaryColor else Color.Transparent)
+                                    .clickable { newFrequency = fKey }
+                                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    fontFamily = appFont,
+                                    text = fLabel,
+                                    color = if (isSelected) (if (primaryColor == Color.White) Color.Black else Color.White) else secondaryTextColor,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -331,7 +374,7 @@ fun AddTrackerSheet(
                             .size(36.dp)
                             .clip(CircleShape)
                             .background(
-                                if (colorHex == null) (if (ThemeStyles.isLightTheme(selectedTheme)) borderColor else Color.DarkGray) else Color(android.graphics.Color.parseColor(colorHex))
+                                if (colorHex == null) (if (ThemeStyles.isLightTheme(selectedTheme)) borderColor else Color.DarkGray) else Color(colorHex.toColorInt())
                             )
                             .border(
                                 width = if (isSelected) 2.dp else 0.dp,
@@ -368,14 +411,14 @@ fun AddTrackerSheet(
             )
 
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 TextButton(
                     onClick = onDismiss,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 48.dp)
                 ) {
-                    Text(fontFamily = appFont, text = "Cancel", color = secondaryTextColor)
+                    Text(fontFamily = appFont, text = "Cancel", color = secondaryTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Button(
                     onClick = {
@@ -403,12 +446,14 @@ fun AddTrackerSheet(
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 48.dp)
                 ) {
                     Text(fontFamily = appFont, 
                         text = "Create",
                         color = if (primaryColor == Color.White) Color.Black else Color.White,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -636,7 +681,11 @@ fun EditTrackerSheet(
                 Triple("bad", "Bad", "Avoidance, logging breaks streak")
             )
             Row(
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (ThemeStyles.isLightTheme(selectedTheme)) borderColor.copy(alpha = 0.2f) else Color(0xFF141414)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .recessedWell(RoundedCornerShape(12.dp), isLight = ThemeStyles.isLightTheme(selectedTheme))
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (ThemeStyles.isLightTheme(selectedTheme)) borderColor.copy(alpha = 0.2f) else Color(0xFF141414)),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
                 trackerTypes.forEach { (typeId, label, _) ->
@@ -660,7 +709,7 @@ fun EditTrackerSheet(
                 }
             }
 
-            // Routine / Time of Day
+            // Routine / Time of Day (balanced 2x2 grid for dynamic dimensions)
             Text(fontFamily = appFont, text = "Routine (Time of Day)", color = secondaryTextColor, fontSize = 12.sp, modifier = Modifier.align(Alignment.Start))
             val routineTypes = listOf(
                 "anytime" to "Anytime",
@@ -668,32 +717,50 @@ fun EditTrackerSheet(
                 "afternoon" to "☀️ Afternoon",
                 "evening" to "🌙 Evening"
             )
-            Row(
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (ThemeStyles.isLightTheme(selectedTheme)) borderColor.copy(alpha = 0.2f) else Color(0xFF141414)),
-                horizontalArrangement = Arrangement.SpaceEvenly
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .recessedWell(RoundedCornerShape(12.dp), isLight = ThemeStyles.isLightTheme(selectedTheme))
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (ThemeStyles.isLightTheme(selectedTheme)) borderColor.copy(alpha = 0.2f) else Color(0xFF141414))
+                    .padding(4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                routineTypes.forEach { (rKey, rLabel) ->
-                    val isSelected = editTimeOfDay == rKey
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (isSelected) primaryColor else Color.Transparent)
-                            .clickable { editTimeOfDay = rKey }
-                            .padding(vertical = 8.dp),
-                        contentAlignment = Alignment.Center
+                routineTypes.chunked(2).forEach { rowItems ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Text(fontFamily = appFont, 
-                            text = rLabel,
-                            color = if (isSelected) (if (primaryColor == Color.White) Color.Black else Color.White) else secondaryTextColor,
-                            fontSize = 11.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                        )
+                        rowItems.forEach { (rKey, rLabel) ->
+                            val isSelected = editTimeOfDay == rKey
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .heightIn(min = 42.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (isSelected) primaryColor else Color.Transparent)
+                                    .clickable { editTimeOfDay = rKey }
+                                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    fontFamily = appFont,
+                                    text = rLabel,
+                                    color = if (isSelected) (if (primaryColor == Color.White) Color.Black else Color.White) else secondaryTextColor,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
                     }
                 }
             }
 
-            // Frequency Schedule
+            // Frequency Schedule (balanced 2x2 grid for dynamic dimensions)
             Text(fontFamily = appFont, text = "Target Frequency", color = secondaryTextColor, fontSize = 12.sp, modifier = Modifier.align(Alignment.Start))
             val freqOptions = listOf(
                 "daily" to "Daily",
@@ -701,28 +768,45 @@ fun EditTrackerSheet(
                 "custom_days" to "Custom Days",
                 "weekly_quota" to "Weekly Target"
             )
-            Row(
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (ThemeStyles.isLightTheme(selectedTheme)) borderColor.copy(alpha = 0.2f) else Color(0xFF141414)),
-                horizontalArrangement = Arrangement.SpaceEvenly
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .recessedWell(RoundedCornerShape(12.dp), isLight = ThemeStyles.isLightTheme(selectedTheme))
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (ThemeStyles.isLightTheme(selectedTheme)) borderColor.copy(alpha = 0.2f) else Color(0xFF141414))
+                    .padding(4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                freqOptions.forEach { (fKey, fLabel) ->
-                    val isSelected = editFrequency == fKey
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (isSelected) primaryColor else Color.Transparent)
-                            .clickable { editFrequency = fKey }
-                            .padding(vertical = 8.dp),
-                        contentAlignment = Alignment.Center
+                freqOptions.chunked(2).forEach { rowItems ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Text(fontFamily = appFont, 
-                            text = fLabel,
-                            color = if (isSelected) (if (primaryColor == Color.White) Color.Black else Color.White) else secondaryTextColor,
-                            fontSize = 10.5.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            maxLines = 1
-                        )
+                        rowItems.forEach { (fKey, fLabel) ->
+                            val isSelected = editFrequency == fKey
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .heightIn(min = 42.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (isSelected) primaryColor else Color.Transparent)
+                                    .clickable { editFrequency = fKey }
+                                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    fontFamily = appFont,
+                                    text = fLabel,
+                                    color = if (isSelected) (if (primaryColor == Color.White) Color.Black else Color.White) else secondaryTextColor,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -829,7 +913,7 @@ fun EditTrackerSheet(
                             .size(36.dp)
                             .clip(CircleShape)
                             .background(
-                                if (colorHex == null) (if (ThemeStyles.isLightTheme(selectedTheme)) borderColor else Color.DarkGray) else Color(android.graphics.Color.parseColor(colorHex))
+                                if (colorHex == null) (if (ThemeStyles.isLightTheme(selectedTheme)) borderColor else Color.DarkGray) else Color(colorHex.toColorInt())
                             )
                             .border(
                                 width = if (isSelected) 2.dp else 0.dp,
@@ -866,14 +950,14 @@ fun EditTrackerSheet(
             )
 
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 TextButton(
                     onClick = onDismiss,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 48.dp)
                 ) {
-                    Text(fontFamily = appFont, text = "Cancel", color = secondaryTextColor)
+                    Text(fontFamily = appFont, text = "Cancel", color = secondaryTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Button(
                     onClick = {
@@ -902,12 +986,14 @@ fun EditTrackerSheet(
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
-                    modifier = Modifier.weight(1f).testTag("edit_tracker_save_button")
+                    modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 48.dp).testTag("edit_tracker_save_button")
                 ) {
                     Text(fontFamily = appFont, 
                         text = "Save Changes",
                         color = if (primaryColor == Color.White) Color.Black else Color.White,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -1203,7 +1289,7 @@ fun ReminderTimePickerDialog(
                                 Icon(Icons.Default.KeyboardArrowDown, "Decrease Hour", tint = secondaryTextColor)
                             }
                             Text(
-                                text = String.format("%02d", hourIn),
+                                text = String.format(Locale.US, "%02d", hourIn),
                                 fontSize = 28.sp,
                                 color = textColor,
                                 fontWeight = FontWeight.Bold,
@@ -1230,7 +1316,7 @@ fun ReminderTimePickerDialog(
                                 Icon(Icons.Default.KeyboardArrowDown, "Decrease Minute", tint = secondaryTextColor)
                             }
                             Text(
-                                text = String.format("%02d", minIn),
+                                text = String.format(Locale.US, "%02d", minIn),
                                 fontSize = 28.sp,
                                 color = textColor,
                                 fontFamily = appFont,
@@ -1249,7 +1335,7 @@ fun ReminderTimePickerDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     listOf("08:00", "13:00", "18:00", "21:00").forEach { preset ->
-                        val isPreset = String.format("%02d:%02d", hourIn, minIn) == preset
+                        val isPreset = String.format(Locale.US, "%02d:%02d", hourIn, minIn) == preset
                         Box(
                             modifier = Modifier
                                 .weight(1f)
@@ -1278,27 +1364,27 @@ fun ReminderTimePickerDialog(
                 }
 
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     TextButton(
                         onClick = onDismiss,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 48.dp)
                     ) {
-                        Text(text = "Cancel", color = secondaryTextColor, fontFamily = appFont)
+                        Text(text = "Cancel", color = secondaryTextColor, fontFamily = appFont, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     Button(
                         onClick = {
-                            onConfirm(String.format("%02d:%02d", hourIn, minIn))
+                            onConfirm(String.format(Locale.US, "%02d:%02d", hourIn, minIn))
                         },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = primaryColor,
                             contentColor = if (isLight && primaryColor != Color.White) Color.White else if (primaryColor == Color.White) Color.Black else Color.White
                         ),
                         shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 48.dp)
                     ) {
-                        Text(text = "Set Time", fontWeight = FontWeight.Bold, fontFamily = appFont)
+                        Text(text = "Set Time", fontWeight = FontWeight.Bold, fontFamily = appFont, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
@@ -1961,10 +2047,10 @@ fun DayDetailsBottomSheet(
             
             HorizontalDivider(color = borderColor, thickness = 0.5.dp)
             
-            // Actions row
+                // Actions row
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 OutlinedButton(
                     onClick = {
@@ -1973,10 +2059,18 @@ fun DayDetailsBottomSheet(
                     },
                     border = BorderStroke(1.dp, primaryColor.copy(alpha = 0.5f)),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = primaryColor),
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(8.dp)
+                    modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 44.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                    shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text(fontFamily = appFont, text = "✍️ Journal", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        fontFamily = appFont,
+                        text = "✍️ Journal",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
 
                 if (dayEntries.isNotEmpty()) {
@@ -1987,10 +2081,17 @@ fun DayDetailsBottomSheet(
                         },
                         border = BorderStroke(1.dp, Color.Red.copy(alpha = 0.6f)),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red),
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(8.dp)
+                        modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 44.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                        shape = RoundedCornerShape(10.dp)
                     ) {
-                        Text(fontFamily = appFont, text = "Clear", fontSize = 12.sp)
+                        Text(
+                            fontFamily = appFont,
+                            text = "Clear",
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
                 
@@ -2003,10 +2104,18 @@ fun DayDetailsBottomSheet(
                         containerColor = primaryColor,
                         contentColor = if (primaryColor == Color.White) Color.Black else Color.White
                     ),
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(8.dp)
+                    modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 44.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                    shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text(fontFamily = appFont, text = if (activeTracker.type == "bad") "Log Slip" else "+1 Log", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        fontFamily = appFont,
+                        text = if (activeTracker.type == "bad") "Log Slip" else "+1 Log",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
         }
