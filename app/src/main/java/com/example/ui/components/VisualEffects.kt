@@ -489,15 +489,16 @@ private fun DrawScope.drawDynamicAtmosphericParticles(
 }
 
 /**
- * Full-bleed zero-recomposition dynamic backdrop calibrated for smooth scrolling & tab switching.
- * - Uses single cached gradient / AGSL shader pass with zero per-frame Brush object allocations.
- * - All animated Color/Float states are read strictly inside drawBehind.
+ * Full-bleed zero-recomposition ambient backdrop calibrated for smooth scrolling & tab switching.
+ * - Defaults to static cached gradients via drawWithCache (zero continuous GPU invalidation).
+ * - When [animateMotion] is enabled on a Glass/Elemental theme, opts into the gentle AGSL shader drift.
  */
 @Composable
 fun LiquidAmbientBackdrop(
     selectedTheme: String,
     customPrimaryHex: String = "",
     customBackgroundHex: String = "",
+    animateMotion: Boolean = false,
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit
 ) {
@@ -506,44 +507,89 @@ fun LiquidAmbientBackdrop(
     val baseBg = ThemeStyles.getBackgroundColor(selectedTheme, customBackgroundHex)
     val primary = ThemeStyles.getPrimaryColor(selectedTheme, customPrimaryHex)
 
+    if (!isGlass || !animateMotion) {
+        val bgStart = if (isGlass) appTheme.ambientStart else baseBg
+        val bgEnd = if (isGlass) appTheme.ambientEnd else baseBg
+        val highlight = if (isGlass) appTheme.ambientHighlight else primary
+        val tertiary = if (isGlass) appTheme.ambientTertiary else primary
+
+        Box(modifier = modifier) {
+            Spacer(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .drawWithCache {
+                        if (!isGlass) {
+                            onDrawBehind {
+                                drawRect(color = bgStart)
+                            }
+                        } else {
+                            val verticalWash = Brush.verticalGradient(
+                                0f to bgStart,
+                                0.55f to bgEnd,
+                                1f to bgStart
+                            )
+                            val highlightRadius = size.maxDimension * 0.72f
+                            val highlightCenter = Offset(size.width * 0.22f, size.height * 0.18f)
+                            val highlightOrb = Brush.radialGradient(
+                                colors = listOf(highlight.copy(alpha = if (appTheme.isDark) 0.22f else 0.18f), Color.Transparent),
+                                center = highlightCenter,
+                                radius = highlightRadius.coerceAtLeast(1f)
+                            )
+                            val tertiaryRadius = size.maxDimension * 0.68f
+                            val tertiaryCenter = Offset(size.width * 0.84f, size.height * 0.78f)
+                            val tertiaryOrb = Brush.radialGradient(
+                                colors = listOf(tertiary.copy(alpha = if (appTheme.isDark) 0.18f else 0.14f), Color.Transparent),
+                                center = tertiaryCenter,
+                                radius = tertiaryRadius.coerceAtLeast(1f)
+                            )
+                            onDrawBehind {
+                                drawRect(brush = verticalWash)
+                                drawCircle(brush = highlightOrb, radius = highlightRadius, center = highlightCenter)
+                                drawCircle(brush = tertiaryOrb, radius = tertiaryRadius, center = tertiaryCenter)
+                            }
+                        }
+                    }
+            )
+
+            content()
+        }
+        return
+    }
+
     val animBgStartState: State<Color> = animateColorAsState(
-        targetValue = if (isGlass) appTheme.ambientStart else baseBg,
+        targetValue = appTheme.ambientStart,
         animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
         label = "liquid_bg_start"
     )
     val animBgEndState: State<Color> = animateColorAsState(
-        targetValue = if (isGlass) appTheme.ambientEnd else baseBg,
+        targetValue = appTheme.ambientEnd,
         animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
         label = "liquid_bg_end"
     )
     val animOrbAState: State<Color> = animateColorAsState(
-        targetValue = if (isGlass) appTheme.ambientHighlight else primary,
+        targetValue = appTheme.ambientHighlight,
         animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
         label = "liquid_orb_a"
     )
     val animTertiaryState: State<Color> = animateColorAsState(
-        targetValue = if (isGlass) appTheme.ambientTertiary else primary,
+        targetValue = appTheme.ambientTertiary,
         animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
         label = "liquid_orb_c"
     )
 
-    val phaseState: State<Float>? = if (isGlass) {
-        val driftTransition = rememberInfiniteTransition(label = "liquid_ambient_120hz")
-        driftTransition.animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 16000, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart
-            ),
-            label = "liquid_continuous_phase"
-        )
-    } else {
-        null
-    }
+    val driftTransition = rememberInfiniteTransition(label = "liquid_ambient_motion")
+    val phaseState: State<Float> = driftTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 16000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "liquid_continuous_phase"
+    )
 
-    val cachedShader = remember(isGlass, appTheme.effectStyle) {
-        if (isGlass && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+    val cachedShader = remember(appTheme.effectStyle) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             AgslShaderLibrary.createShader(appTheme.effectStyle)
         } else {
             null
@@ -560,12 +606,7 @@ fun LiquidAmbientBackdrop(
                     val orbA = animOrbAState.value
                     val tertiary = animTertiaryState.value
 
-                    if (!isGlass) {
-                        drawRect(color = bgStart)
-                        return@drawBehind
-                    }
-
-                    val phase = phaseState?.value ?: 0f
+                    val phase = phaseState.value
                     val shaderBrush = if (cachedShader != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         AgslShaderLibrary.updateBrush(
                             shader = cachedShader,

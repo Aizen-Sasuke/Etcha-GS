@@ -44,13 +44,19 @@ fun DailyJournalModal(
     val allEntries by viewModel.entries.collectAsState(initial = emptyList())
     val activeTracker by viewModel.activeTracker.collectAsState()
 
-    val cardBgColor = ThemeStyles.getOpaqueCardColor(selectedTheme, customBgHex)
-    val borderColor = ThemeStyles.getBorderColor(selectedTheme, customBgHex)
-    val primaryColor = ThemeStyles.getPrimaryColor(selectedTheme, customHex)
+    val palette = remember(selectedTheme, customHex, customBgHex) {
+        ThemeStyles.resolvePalette(selectedTheme, customHex, customBgHex)
+    }
+    val cardBgColor = palette.modalSurface
+    val surfaceCardColor = palette.cardSurface
+    val neutralWell = palette.neutralWell
+    val borderColor = palette.border
+    val primaryColor = palette.primary
+    val onPrimaryColor = palette.onPrimary
+    val accentTextColor = palette.accentOnSurface
     val appFont = ThemeStyles.getSelectedFontFamily(selectedFont)
-    val textColor = ThemeStyles.getTextColor(selectedTheme, customBgHex)
-    val secondaryTextColor = ThemeStyles.getSecondaryTextColor(selectedTheme, customBgHex)
-    val isLight = ThemeStyles.isLightTheme(selectedTheme, customBgHex)
+    val textColor = palette.textPrimary
+    val secondaryTextColor = palette.textSecondary
 
     val targetDate = initialDate ?: viewModel.getEffectiveToday()
     val targetDateString = targetDate.toString()
@@ -157,7 +163,7 @@ fun DailyJournalModal(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
-                            .background(if (isLight) Color(0xFFEEEEEE) else Color(0xFF181818))
+                            .background(neutralWell)
                             .padding(4.dp),
                         horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
@@ -177,7 +183,7 @@ fun DailyJournalModal(
                                     fontFamily = appFont,
                                     fontSize = 12.sp,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (isSelected) (if (primaryColor == Color.White) Color.Black else Color.White) else secondaryTextColor
+                                    color = if (isSelected) onPrimaryColor else secondaryTextColor
                                 )
                             }
                         }
@@ -222,7 +228,7 @@ fun DailyJournalModal(
                                             modifier = Modifier
                                                 .size(44.dp)
                                                 .clip(CircleShape)
-                                                .background(if (isMoodSelected) primaryColor.copy(alpha = 0.2f) else (if (isLight) Color(0xFFEEEEEE) else Color(0xFF1B1B1B)))
+                                                .background(if (isMoodSelected) primaryColor.copy(alpha = 0.2f) else neutralWell)
                                                 .border(
                                                     width = if (isMoodSelected) 2.dp else 0.5.dp,
                                                     color = if (isMoodSelected) primaryColor else borderColor,
@@ -236,7 +242,7 @@ fun DailyJournalModal(
                                             text = label,
                                             fontFamily = appFont,
                                             fontSize = 10.sp,
-                                            color = if (isMoodSelected) primaryColor else secondaryTextColor,
+                                            color = if (isMoodSelected) accentTextColor else secondaryTextColor,
                                             fontWeight = if (isMoodSelected) FontWeight.Bold else FontWeight.Normal,
                                             modifier = Modifier.padding(top = 2.dp)
                                         )
@@ -275,7 +281,7 @@ fun DailyJournalModal(
                                             text = "💡 $prompt",
                                             fontFamily = appFont,
                                             fontSize = 10.sp,
-                                            color = primaryColor,
+                                            color = accentTextColor,
                                             maxLines = 2
                                         )
                                     }
@@ -304,8 +310,8 @@ fun DailyJournalModal(
                                 colors = OutlinedTextFieldDefaults.colors(
                                     focusedBorderColor = primaryColor,
                                     unfocusedBorderColor = borderColor,
-                                    focusedContainerColor = if (isLight) Color.White else Color(0xFF141414),
-                                    unfocusedContainerColor = if (isLight) Color.White else Color(0xFF141414),
+                                    focusedContainerColor = neutralWell,
+                                    unfocusedContainerColor = neutralWell,
                                     focusedTextColor = textColor,
                                     unfocusedTextColor = textColor
                                 )
@@ -318,7 +324,10 @@ fun DailyJournalModal(
                                 viewModel.saveDailyJournal(targetDateString, journalText, selectedMood)
                                 onDismiss()
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = primaryColor,
+                                contentColor = onPrimaryColor
+                            ),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -327,7 +336,7 @@ fun DailyJournalModal(
                                 fontFamily = appFont,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (primaryColor == Color.White) Color.Black else Color.White
+                                color = onPrimaryColor
                             )
                         }
                     } else {
@@ -367,7 +376,7 @@ fun DailyJournalModal(
 
                                     Card(
                                         colors = CardDefaults.cardColors(
-                                            containerColor = if (isLight) Color(0xFFF7F7F7) else Color(0xFF171717)
+                                            containerColor = surfaceCardColor
                                         ),
                                         border = androidx.compose.foundation.BorderStroke(0.5.dp, borderColor),
                                         shape = RoundedCornerShape(12.dp),

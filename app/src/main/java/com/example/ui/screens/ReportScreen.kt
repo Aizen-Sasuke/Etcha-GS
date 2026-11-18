@@ -11,11 +11,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
@@ -37,39 +36,50 @@ import com.example.ui.ReportAnalyticsSnapshot
 import com.example.ui.ThemeStyles
 import com.example.ui.components.AnimatedNumberText
 import com.example.ui.components.MotionSpecs
-import com.example.ui.components.StaggeredReveal
 import com.example.ui.components.recessedWell
-import com.example.ui.components.springPressScale
 import com.example.ui.components.surface3DCard
 import java.util.Locale
 
 @Composable
 fun ReportScreen(
     viewModel: HabitViewModel,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isTwoPane: Boolean = false
 ) {
     val stats by viewModel.reportStats.collectAsStateWithLifecycle(initialValue = HabitStats())
     val analytics by viewModel.reportAnalytics.collectAsStateWithLifecycle(initialValue = ReportAnalyticsSnapshot())
+    val correlationInsights by viewModel.correlationInsights.collectAsStateWithLifecycle()
     val activeTracker by viewModel.reportTracker.collectAsStateWithLifecycle()
     val allTrackers by viewModel.allTrackers.collectAsStateWithLifecycle()
+    val vacationState by viewModel.vacationState.collectAsStateWithLifecycle()
+    val dayRolloverHour by viewModel.dayRolloverHour.collectAsStateWithLifecycle()
+    val today = remember(dayRolloverHour) { viewModel.getEffectiveToday() }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var trackerToAdjustReminder by remember { mutableStateOf<com.example.ui.TrackerConfig?>(null) }
+    var trackerToArchive by remember { mutableStateOf<com.example.ui.TrackerConfig?>(null) }
+    var trackerToDelete by remember { mutableStateOf<com.example.ui.TrackerConfig?>(null) }
 
     val selectedTheme by viewModel.selectedTheme.collectAsStateWithLifecycle()
     val selectedFont by viewModel.selectedFont.collectAsStateWithLifecycle()
     val appFont = ThemeStyles.getSelectedFontFamily(selectedFont)
     val customHex by viewModel.customPrimaryColor.collectAsStateWithLifecycle()
     val customBgHex by viewModel.customBackgroundColor.collectAsStateWithLifecycle()
-    val isGlass = ThemeStyles.isGlassTheme(selectedTheme)
-    val isLight = ThemeStyles.isLightTheme(selectedTheme, customBgHex)
-    val bgColor = ThemeStyles.getBackgroundColor(selectedTheme, customBgHex)
-    val cardBgColor = ThemeStyles.getCardBackgroundColor(selectedTheme, customBgHex)
-    val borderColor = ThemeStyles.getBorderColor(selectedTheme, customBgHex)
+    val palette = remember(selectedTheme, customHex, customBgHex) {
+        ThemeStyles.resolvePalette(selectedTheme, customHex, customBgHex)
+    }
+    val isGlass = palette.isGlass
+    val isLight = !palette.isDark
+    val bgColor = palette.background
+    val cardBgColor = palette.cardSurface
+    val modalBgColor = palette.modalSurface
+    val neutralWellColor = palette.neutralWell
+    val borderColor = palette.border
     val cardStroke = ThemeStyles.getGlassBorderStroke(selectedTheme, customBgHex)
-    val primaryColor = ThemeStyles.getPrimaryColor(selectedTheme, customHex)
-    val textColor = ThemeStyles.getTextColor(selectedTheme, customBgHex)
-    val secondaryTextColor = ThemeStyles.getSecondaryTextColor(selectedTheme, customBgHex)
-    val onPrimaryColor = if (ThemeStyles.isLightColor(primaryColor)) Color.Black else Color.White
-
-    val scrollState = rememberScrollState()
+    val primaryColor = palette.primary
+    val accentTextColor = palette.accentOnSurface
+    val textColor = palette.textPrimary
+    val secondaryTextColor = palette.textSecondary
+    val onPrimaryColor = palette.onPrimary
 
     val streakLabel = remember(activeTracker) {
         if (activeTracker.type == "bad") "Longest clean streak" else "Longest consecutive streak"
@@ -146,7 +156,6 @@ fun ReportScreen(
                     Box(
                         modifier = Modifier
                             .heightIn(min = 40.dp)
-                            .springPressScale(pressedScale = 0.93f)
                             .clip(RoundedCornerShape(12.dp))
                             .background(if (isSelected) primaryColor.copy(alpha = 0.2f) else cardBgColor)
                             .border(
@@ -168,7 +177,7 @@ fun ReportScreen(
                                 fontFamily = appFont,
                                 fontSize = 12.sp,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                color = if (isSelected) primaryColor else (if (isArchived) secondaryTextColor else textColor)
+                                color = if (isSelected) accentTextColor else (if (isArchived) secondaryTextColor else textColor)
                             )
                         }
                     }
@@ -219,7 +228,6 @@ fun ReportScreen(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
-                        .springPressScale(pressedScale = 0.95f)
                         .clip(RoundedCornerShape(9.dp))
                         .background(if (selectedReportTab == 0) primaryColor else Color.Transparent)
                         .clickable { selectedReportTab = 0 }
@@ -241,7 +249,6 @@ fun ReportScreen(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
-                        .springPressScale(pressedScale = 0.95f)
                         .clip(RoundedCornerShape(9.dp))
                         .background(if (selectedReportTab == 1) primaryColor else Color.Transparent)
                         .clickable { selectedReportTab = 1 }
@@ -269,466 +276,516 @@ fun ReportScreen(
                 modifier = Modifier.weight(1f)
             ) { tab ->
                 if (tab == 0) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(scrollState)
-                            .padding(horizontal = 16.dp)
-                            .padding(bottom = 90.dp)
+                    val maxContentWidth = if (isTwoPane) 1040.dp else 640.dp
+                    val streakUnit = if (isWeeklyQuota) {
+                        if (stats.bestStreak == 1) "week" else "weeks"
+                    } else "days"
+
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 90.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        Spacer(modifier = Modifier.height(6.dp))
-
                         // 1. STATS GRID (Symmetrical 2x2 grid)
-                        val streakUnit = if (isWeeklyQuota) {
-                            if (stats.bestStreak == 1) "week" else "weeks"
-                        } else "days"
-
-                        StaggeredReveal(index = 0) {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(IntrinsicSize.Max),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        item(key = "stats_grid") {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().widthIn(max = maxContentWidth),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                CompactStatsCard(
-                                    appFont = appFont,
-                                    title = "Total logged days",
-                                    value = "${analytics.loggedDaysCount}",
-                                    subtitle = "out of ~${analytics.totalSpanDays} days",
-                                    cardBgColor = cardBgColor,
-                                    borderColor = borderColor,
-                                    borderStroke = cardStroke,
-                                    textColor = textColor,
-                                    secondaryTextColor = secondaryTextColor,
-                                    modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 104.dp)
-                                )
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(IntrinsicSize.Max),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    CompactStatsCard(
+                                        appFont = appFont,
+                                        title = "Total logged days",
+                                        value = "${analytics.loggedDaysCount}",
+                                        subtitle = "out of ~${analytics.totalSpanDays} days",
+                                        cardBgColor = cardBgColor,
+                                        borderColor = borderColor,
+                                        borderStroke = cardStroke,
+                                        textColor = textColor,
+                                        secondaryTextColor = secondaryTextColor,
+                                        modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 104.dp)
+                                    )
 
-                                CompactStatsCard(
-                                    appFont = appFont,
-                                    title = "Total count",
-                                    value = "${analytics.totalCount}",
-                                    subtitle = analytics.countSubtitle,
-                                    cardBgColor = cardBgColor,
-                                    borderColor = borderColor,
-                                    borderStroke = cardStroke,
-                                    textColor = textColor,
-                                    secondaryTextColor = secondaryTextColor,
-                                    modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 104.dp)
-                                )
-                            }
+                                    CompactStatsCard(
+                                        appFont = appFont,
+                                        title = "Total count",
+                                        value = "${analytics.totalCount}",
+                                        subtitle = analytics.countSubtitle,
+                                        cardBgColor = cardBgColor,
+                                        borderColor = borderColor,
+                                        borderStroke = cardStroke,
+                                        textColor = textColor,
+                                        secondaryTextColor = secondaryTextColor,
+                                        modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 104.dp)
+                                    )
+                                }
 
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(IntrinsicSize.Max),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                CompactStatsCard(
-                                    appFont = appFont,
-                                    title = "Avg per month",
-                                    value = String.format(Locale.US, "%.1f", analytics.avgPerMonth),
-                                    subtitle = analytics.avgSubtitle,
-                                    cardBgColor = cardBgColor,
-                                    borderColor = borderColor,
-                                    borderStroke = cardStroke,
-                                    textColor = textColor,
-                                    secondaryTextColor = secondaryTextColor,
-                                    modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 104.dp)
-                                )
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(IntrinsicSize.Max),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    CompactStatsCard(
+                                        appFont = appFont,
+                                        title = "Avg per month",
+                                        value = String.format(Locale.US, "%.1f", analytics.avgPerMonth),
+                                        subtitle = analytics.avgSubtitle,
+                                        cardBgColor = cardBgColor,
+                                        borderColor = borderColor,
+                                        borderStroke = cardStroke,
+                                        textColor = textColor,
+                                        secondaryTextColor = secondaryTextColor,
+                                        modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 104.dp)
+                                    )
 
-                                CompactStatsCard(
-                                    appFont = appFont,
-                                    title = streakLabel,
-                                    value = "${stats.bestStreak} $streakUnit",
-                                    subtitle = streakSubtitle,
-                                    cardBgColor = cardBgColor,
-                                    borderColor = borderColor,
-                                    borderStroke = cardStroke,
-                                    textColor = textColor,
-                                    secondaryTextColor = secondaryTextColor,
-                                    modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 104.dp)
-                                )
+                                    CompactStatsCard(
+                                        appFont = appFont,
+                                        title = streakLabel,
+                                        value = "${stats.bestStreak} $streakUnit",
+                                        subtitle = streakSubtitle,
+                                        cardBgColor = cardBgColor,
+                                        borderColor = borderColor,
+                                        borderStroke = cardStroke,
+                                        textColor = textColor,
+                                        secondaryTextColor = secondaryTextColor,
+                                        modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 104.dp)
+                                    )
+                                }
                             }
                         }
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
 
                         // 2. THIS MONTH'S CONSISTENCY CARD
-                        StaggeredReveal(index = 1) {
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = cardBgColor),
-                            border = cardStroke,
-                            shape = DesignTokens.CardShape,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .surface3DCard(
-                                    shape = DesignTokens.CardShape,
-                                    isLight = isLight,
+                        item(key = "month_consistency") {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = cardBgColor),
+                                border = cardStroke,
+                                shape = DesignTokens.CardShape,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .widthIn(max = maxContentWidth)
+                                    .surface3DCard(
+                                        shape = DesignTokens.CardShape,
+                                        isLight = isLight,
+                                        primaryColor = primaryColor,
+                                        isGlass = isGlass,
+                                        elevationDp = 6.dp
+                                    )
+                            ) {
+                                Column(modifier = Modifier.padding(DesignTokens.CardPadding)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column {
+                                            Text(
+                                                text = "THIS MONTH'S CONSISTENCY",
+                                                fontFamily = appFont,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 11.sp,
+                                                color = secondaryTextColor
+                                            )
+                                            Text(
+                                                text = "${analytics.currentMonthLoggedDays} of ${analytics.daysInCurrentMonth} days logged",
+                                                fontFamily = appFont,
+                                                fontWeight = FontWeight.SemiBold,
+                                                fontSize = 14.sp,
+                                                color = textColor
+                                            )
+                                        }
+                                        AnimatedNumberText(
+                                            value = monthPercent,
+                                            suffix = "%",
+                                            fontFamily = appFont,
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 22.sp,
+                                            color = accentTextColor
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    val animatedMonthProgress by animateFloatAsState(
+                                        targetValue = monthProgressFraction,
+                                        animationSpec = MotionSpecs.SnappyFloatSpring,
+                                        label = "month_consistency_bar"
+                                    )
+                                    LinearProgressIndicator(
+                                        progress = { animatedMonthProgress },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(6.dp)
+                                            .recessedWell(RoundedCornerShape(3.dp), isLight = isLight)
+                                            .clip(RoundedCornerShape(3.dp)),
+                                        color = primaryColor,
+                                        trackColor = if (isLight) borderColor.copy(alpha = 0.4f) else borderColor.copy(alpha = 0.25f)
+                                    )
+                                }
+                            }
+                        }
+
+                        // 3. 12-WEEK SCHEDULE ADHERENCE
+                        item(key = "weekly_consistency") {
+                            Box(modifier = Modifier.fillMaxWidth().widthIn(max = maxContentWidth)) {
+                                WeeklyConsistencyChartCard(
+                                    appFont = appFont,
+                                    points = analytics.weeklyConsistency,
                                     primaryColor = primaryColor,
-                                    isGlass = isGlass,
-                                    elevationDp = 6.dp
+                                    textColor = textColor,
+                                    secondaryTextColor = secondaryTextColor,
+                                    cardBgColor = cardBgColor,
+                                    borderColor = borderColor
                                 )
-                        ) {
-                            Column(modifier = Modifier.padding(DesignTokens.CardPadding)) {
+                            }
+                        }
+
+                        // 4. STREAK MILESTONES & ACHIEVEMENTS
+                        item(key = "milestones_section") {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().widthIn(max = maxContentWidth),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
                                 Row(
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Column {
-                                        Text(
-                                            text = "THIS MONTH'S CONSISTENCY",
-                                            fontFamily = appFont,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 11.sp,
-                                            color = secondaryTextColor
-                                        )
-                                        Text(
-                                            text = "${analytics.currentMonthLoggedDays} of ${analytics.daysInCurrentMonth} days logged",
-                                            fontFamily = appFont,
-                                            fontWeight = FontWeight.SemiBold,
-                                            fontSize = 14.sp,
-                                            color = textColor
-                                        )
-                                    }
-                                    AnimatedNumberText(
-                                        value = monthPercent,
-                                        suffix = "%",
+                                    Text(
+                                        text = "STREAK MILESTONES",
                                         fontFamily = appFont,
-                                        fontWeight = FontWeight.Black,
-                                        fontSize = 22.sp,
-                                        color = primaryColor
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        color = secondaryTextColor
+                                    )
+                                    Text(
+                                        text = "$unlockedCount / ${milestonesList.size} unlocked",
+                                        fontFamily = appFont,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = accentTextColor
                                     )
                                 }
-                                Spacer(modifier = Modifier.height(10.dp))
-                                val animatedMonthProgress by animateFloatAsState(
-                                    targetValue = monthProgressFraction,
-                                    animationSpec = MotionSpecs.SnappyFloatSpring,
-                                    label = "month_consistency_bar"
-                                )
-                                LinearProgressIndicator(
-                                    progress = { animatedMonthProgress },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(6.dp)
-                                        .recessedWell(RoundedCornerShape(3.dp), isLight = isLight)
-                                        .clip(RoundedCornerShape(3.dp)),
-                                    color = primaryColor,
-                                    trackColor = if (isLight) borderColor.copy(alpha = 0.4f) else borderColor.copy(alpha = 0.25f)
-                                )
-                            }
-                        }
-                        }
 
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        // 3. 12-WEEK SCHEDULE ADHERENCE
-                        WeeklyConsistencyChartCard(
-                            appFont = appFont,
-                            points = analytics.weeklyConsistency,
-                            primaryColor = primaryColor,
-                            textColor = textColor,
-                            secondaryTextColor = secondaryTextColor,
-                            cardBgColor = cardBgColor,
-                            borderColor = borderColor
-                        )
-
-                        Spacer(modifier = Modifier.height(18.dp))
-
-                        // 4. STREAK MILESTONES & ACHIEVEMENTS
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "STREAK MILESTONES",
-                                fontFamily = appFont,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp,
-                                color = secondaryTextColor
-                            )
-                            Text(
-                                text = "$unlockedCount / ${milestonesList.size} unlocked",
-                                fontFamily = appFont,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = primaryColor
-                            )
-                        }
-
-                        LazyRow(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            items(milestonesList) { milestone ->
-                                val isUnlocked = effectiveStreak >= milestone.targetDays
-                                val progress = (effectiveStreak.toFloat() / milestone.targetDays.toFloat()).coerceIn(0f, 1f)
-                                val badgeBg = if (isUnlocked) primaryColor.copy(alpha = 0.22f) else {
-                                    if (ThemeStyles.isLightTheme(selectedTheme)) borderColor.copy(alpha = 0.28f) else Color(0xFF222222)
-                                }
-
-                                Card(
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = if (isUnlocked) primaryColor.copy(alpha = 0.12f) else cardBgColor
-                                    ),
-                                    border = BorderStroke(
-                                        width = if (isUnlocked) 1.5.dp else 0.5.dp,
-                                        color = if (isUnlocked) primaryColor.copy(alpha = 0.6f) else borderColor
-                                    ),
-                                    shape = RoundedCornerShape(14.dp),
-                                    modifier = Modifier
-                                        .width(136.dp)
-                                        .heightIn(min = 136.dp)
-                                        .surface3DCard(
-                                            shape = RoundedCornerShape(14.dp),
-                                            isLight = isLight,
-                                            primaryColor = primaryColor,
-                                            isGlass = isGlass,
-                                            elevationDp = if (isUnlocked) 5.dp else 3.dp
-                                        )
+                                LazyRow(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    Column(
-                                        modifier = Modifier.fillMaxWidth().padding(12.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        MilestoneProgressRingBadge(
-                                            icon = milestone.icon,
-                                            progress = progress,
-                                            isUnlocked = isUnlocked,
-                                            primaryColor = primaryColor,
-                                            trackColor = borderColor.copy(alpha = 0.35f),
-                                            badgeBgColor = badgeBg
-                                        )
+                                    items(milestonesList, key = { it.id }) { milestone ->
+                                        val isUnlocked = effectiveStreak >= milestone.targetDays
+                                        val progress = (effectiveStreak.toFloat() / milestone.targetDays.toFloat()).coerceIn(0f, 1f)
+                                        val badgeBg = if (isUnlocked) primaryColor.copy(alpha = 0.22f) else neutralWellColor
 
-                                        Text(
-                                            text = milestone.title,
-                                            fontFamily = appFont,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 12.sp,
-                                            color = textColor,
-                                            textAlign = TextAlign.Center,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-
-                                        if (isUnlocked) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .clip(RoundedCornerShape(6.dp))
-                                                    .background(primaryColor)
-                                                    .padding(horizontal = 8.dp, vertical = 2.dp)
-                                            ) {
-                                                Text(
-                                                    text = "UNLOCKED",
-                                                    fontFamily = appFont,
-                                                    fontSize = 9.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = onPrimaryColor,
-                                                    maxLines = 1
+                                        Card(
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = if (isUnlocked) primaryColor.copy(alpha = 0.12f) else cardBgColor
+                                            ),
+                                            border = BorderStroke(
+                                                width = if (isUnlocked) 1.5.dp else 0.5.dp,
+                                                color = if (isUnlocked) primaryColor.copy(alpha = 0.6f) else borderColor
+                                            ),
+                                            shape = RoundedCornerShape(14.dp),
+                                            modifier = Modifier
+                                                .width(136.dp)
+                                                .heightIn(min = 136.dp)
+                                                .surface3DCard(
+                                                    shape = RoundedCornerShape(14.dp),
+                                                    isLight = isLight,
+                                                    primaryColor = primaryColor,
+                                                    isGlass = isGlass,
+                                                    elevationDp = if (isUnlocked) 5.dp else 3.dp
                                                 )
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                MilestoneProgressRingBadge(
+                                                    icon = milestone.icon,
+                                                    progress = progress,
+                                                    isUnlocked = isUnlocked,
+                                                    primaryColor = primaryColor,
+                                                    trackColor = borderColor.copy(alpha = 0.35f),
+                                                    badgeBgColor = badgeBg
+                                                )
+
+                                                Text(
+                                                    text = milestone.title,
+                                                    fontFamily = appFont,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 12.sp,
+                                                    color = textColor,
+                                                    textAlign = TextAlign.Center,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+
+                                                if (isUnlocked) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(6.dp))
+                                                            .background(primaryColor)
+                                                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = "UNLOCKED",
+                                                            fontFamily = appFont,
+                                                            fontSize = 9.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = onPrimaryColor,
+                                                            maxLines = 1
+                                                        )
+                                                    }
+                                                } else {
+                                                    Text(
+                                                        text = if (isWeeklyQuota) "$effectiveStreak / ${milestone.targetDays} wks" else "$effectiveStreak / ${milestone.targetDays} d",
+                                                        fontFamily = appFont,
+                                                        fontSize = 10.sp,
+                                                        color = secondaryTextColor,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
                                             }
-                                        } else {
-                                            Text(
-                                                text = if (isWeeklyQuota) "$effectiveStreak / ${milestone.targetDays} wks" else "$effectiveStreak / ${milestone.targetDays} d",
-                                                fontFamily = appFont,
-                                                fontSize = 10.sp,
-                                                color = secondaryTextColor,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
                                         }
                                     }
                                 }
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(20.dp))
-
                         // 5. MONTHLY TREND CARD
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "MONTHLY TREND",
-                                fontFamily = appFont,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                color = secondaryTextColor
-                            )
+                        item(key = "monthly_trend") {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().widthIn(max = maxContentWidth),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "MONTHLY TREND",
+                                        fontFamily = appFont,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = secondaryTextColor
+                                    )
 
-                            FilterSelector(
-                                selected = trendFilter,
-                                onSelect = { trendFilter = it },
-                                appFont = appFont,
-                                primaryColor = primaryColor,
-                                secondaryTextColor = secondaryTextColor,
-                                borderColor = borderColor,
-                                isLight = isLight
-                            )
-                        }
+                                    FilterSelector(
+                                        selected = trendFilter,
+                                        onSelect = { trendFilter = it },
+                                        appFont = appFont,
+                                        primaryColor = primaryColor,
+                                        accentTextColor = accentTextColor,
+                                        secondaryTextColor = secondaryTextColor,
+                                        borderColor = borderColor,
+                                        isLight = isLight
+                                    )
+                                }
 
-                        StaggeredReveal(index = 2) {
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = cardBgColor),
-                            border = cardStroke,
-                            shape = DesignTokens.CardShape,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .surface3DCard(
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = cardBgColor),
+                                    border = cardStroke,
                                     shape = DesignTokens.CardShape,
-                                    isLight = isLight,
-                                    primaryColor = primaryColor,
-                                    isGlass = isGlass,
-                                    elevationDp = 6.dp
-                                )
-                        ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                InteractiveMonthlyTrendChart(
-                                    appFont = appFont,
-                                    dataPoints = monthlyData,
-                                    lineColor = primaryColor,
-                                    textColor = textColor,
-                                    secondaryTextColor = secondaryTextColor,
-                                    gridColor = borderColor,
-                                    cardBgColor = cardBgColor
-                                )
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .surface3DCard(
+                                            shape = DesignTokens.CardShape,
+                                            isLight = isLight,
+                                            primaryColor = primaryColor,
+                                            isGlass = isGlass,
+                                            elevationDp = 6.dp
+                                        )
+                                ) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        InteractiveMonthlyTrendChart(
+                                            appFont = appFont,
+                                            dataPoints = monthlyData,
+                                            lineColor = primaryColor,
+                                            textColor = textColor,
+                                            secondaryTextColor = secondaryTextColor,
+                                            gridColor = borderColor,
+                                            cardBgColor = cardBgColor
+                                        )
+                                    }
+                                }
                             }
                         }
-                        }
-
-                        Spacer(modifier = Modifier.height(20.dp))
 
                         // 6. BY DAY OF WEEK CARD
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "BY DAY OF WEEK",
-                                fontFamily = appFont,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                color = secondaryTextColor
-                            )
+                        item(key = "dow_chart") {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().widthIn(max = maxContentWidth),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "BY DAY OF WEEK",
+                                        fontFamily = appFont,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = secondaryTextColor
+                                    )
 
-                            FilterSelector(
-                                selected = dowFilter,
-                                onSelect = { dowFilter = it },
-                                appFont = appFont,
-                                primaryColor = primaryColor,
-                                secondaryTextColor = secondaryTextColor,
-                                borderColor = borderColor,
-                                isLight = isLight
-                            )
-                        }
+                                    FilterSelector(
+                                        selected = dowFilter,
+                                        onSelect = { dowFilter = it },
+                                        appFont = appFont,
+                                        primaryColor = primaryColor,
+                                        accentTextColor = accentTextColor,
+                                        secondaryTextColor = secondaryTextColor,
+                                        borderColor = borderColor,
+                                        isLight = isLight
+                                    )
+                                }
 
-                        StaggeredReveal(index = 3) {
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = cardBgColor),
-                            border = cardStroke,
-                            shape = DesignTokens.CardShape,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .surface3DCard(
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = cardBgColor),
+                                    border = cardStroke,
                                     shape = DesignTokens.CardShape,
-                                    isLight = isLight,
-                                    primaryColor = primaryColor,
-                                    isGlass = isGlass,
-                                    elevationDp = 6.dp
-                                )
-                        ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                InteractiveDayOfWeekBarChart(
-                                    appFont = appFont,
-                                    dataPoints = dayOfWeekPoints,
-                                    primaryColor = primaryColor,
-                                    secondaryTextColor = secondaryTextColor,
-                                    gridColor = borderColor
-                                )
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .surface3DCard(
+                                            shape = DesignTokens.CardShape,
+                                            isLight = isLight,
+                                            primaryColor = primaryColor,
+                                            isGlass = isGlass,
+                                            elevationDp = 6.dp
+                                        )
+                                ) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        InteractiveDayOfWeekBarChart(
+                                            appFont = appFont,
+                                            dataPoints = dayOfWeekPoints,
+                                            primaryColor = primaryColor,
+                                            secondaryTextColor = secondaryTextColor,
+                                            gridColor = borderColor,
+                                            cardBgColor = modalBgColor
+                                        )
+                                    }
+                                }
                             }
-                        }
                         }
 
                         // 7. MOOD & CHECK-IN RHYTHM
                         if (analytics.moodBreakdown.isNotEmpty() || analytics.timeOfDayBreakdown.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(20.dp))
-                            MoodAndRhythmBreakdownCard(
-                                appFont = appFont,
-                                moods = analytics.moodBreakdown,
-                                timeOfDay = analytics.timeOfDayBreakdown,
-                                primaryColor = primaryColor,
-                                textColor = textColor,
-                                secondaryTextColor = secondaryTextColor,
-                                cardBgColor = cardBgColor,
-                                borderColor = borderColor
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(20.dp))
-
-                        // 8. PATTERNS & INSIGHTS CARD
-                        Text(
-                            text = "PATTERNS & INSIGHTS",
-                            fontFamily = appFont,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            color = secondaryTextColor,
-                            modifier = Modifier.padding(vertical = 8.dp)
-                        )
-
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = cardBgColor),
-                            border = cardStroke,
-                            shape = DesignTokens.CardShape,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .surface3DCard(
-                                    shape = DesignTokens.CardShape,
-                                    isLight = isLight,
-                                    primaryColor = primaryColor,
-                                    isGlass = isGlass,
-                                    elevationDp = 5.dp
-                                )
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(16.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Star,
-                                    contentDescription = "Highlight Icon",
-                                    tint = primaryColor,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Text(
-                                    text = analytics.annualInsights,
-                                    fontFamily = appFont,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = textColor,
-                                    lineHeight = 18.sp,
-                                    modifier = Modifier.weight(1f)
-                                )
+                            item(key = "mood_rhythm") {
+                                Box(modifier = Modifier.fillMaxWidth().widthIn(max = maxContentWidth)) {
+                                    MoodAndRhythmBreakdownCard(
+                                        appFont = appFont,
+                                        moods = analytics.moodBreakdown,
+                                        timeOfDay = analytics.timeOfDayBreakdown,
+                                        primaryColor = primaryColor,
+                                        textColor = textColor,
+                                        secondaryTextColor = secondaryTextColor,
+                                        cardBgColor = cardBgColor,
+                                        borderColor = borderColor
+                                    )
+                                }
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(16.dp))
+                        // 8. PATTERNS & INSIGHTS CARD
+                        item(key = "patterns_insights") {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().widthIn(max = maxContentWidth),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = "PATTERNS & INSIGHTS",
+                                    fontFamily = appFont,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = secondaryTextColor,
+                                    modifier = Modifier.padding(vertical = 4.dp)
+                                )
+
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = cardBgColor),
+                                    border = cardStroke,
+                                    shape = DesignTokens.CardShape,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .surface3DCard(
+                                            shape = DesignTokens.CardShape,
+                                            isLight = isLight,
+                                            primaryColor = primaryColor,
+                                            isGlass = isGlass,
+                                            elevationDp = 5.dp
+                                        )
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(16.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Star,
+                                            contentDescription = "Highlight Icon",
+                                            tint = accentTextColor,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                        Text(
+                                            text = analytics.annualInsights,
+                                            fontFamily = appFont,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = textColor,
+                                            lineHeight = 18.sp,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // 9. BEHAVIORAL CORRELATIONS & DROP-OFFS
+                        item(key = "behavioral_insights") {
+                            Box(modifier = Modifier.fillMaxWidth().widthIn(max = maxContentWidth)) {
+                                BehavioralInsightsSection(
+                                    insights = correlationInsights,
+                                    appFont = appFont,
+                                    primaryColor = primaryColor,
+                                    cardBgColor = cardBgColor,
+                                    borderColor = borderColor,
+                                    cardStroke = cardStroke,
+                                    textColor = textColor,
+                                    secondaryTextColor = secondaryTextColor,
+                                    isLight = isLight,
+                                    isGlass = isGlass,
+                                    onAdjustReminder = { trackerId ->
+                                        val target = allTrackers.find { it.id == trackerId }
+                                        if (target != null) {
+                                            trackerToAdjustReminder = target
+                                        } else {
+                                            android.widget.Toast.makeText(
+                                                context,
+                                                "Open Settings or edit the habit to fine-tune reminder timing.",
+                                                android.widget.Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    }
+                                )
+                            }
+                        }
                     }
                 } else {
                     HeatmapScreen(
@@ -738,6 +795,50 @@ fun ReportScreen(
                 }
             }
         }
+
+        UnifiedHabitSettingsSheet(
+            tracker = trackerToAdjustReminder,
+            initialTab = 2,
+            today = today,
+            vacationState = vacationState,
+            canDelete = allTrackers.size > 1,
+            onDismiss = { trackerToAdjustReminder = null },
+            onPauseUntil = { id, dateStr -> viewModel.setTrackerPausedUntil(id, dateStr) },
+            onArchive = { trackerToArchive = it },
+            onDelete = { trackerToDelete = it },
+            viewModel = viewModel,
+            appFont = appFont,
+            primaryColor = primaryColor,
+            textColor = textColor,
+            secondaryTextColor = secondaryTextColor,
+            cardBgColor = modalBgColor,
+            borderColor = borderColor,
+            selectedTheme = selectedTheme
+        )
+
+        ArchiveTrackerDialog(
+            tracker = trackerToArchive,
+            onDismiss = { trackerToArchive = null },
+            onConfirm = { id -> viewModel.archiveTracker(id) },
+            appFont = appFont,
+            primaryColor = primaryColor,
+            textColor = textColor,
+            secondaryTextColor = secondaryTextColor,
+            cardBgColor = modalBgColor,
+            borderColor = borderColor
+        )
+
+        DeleteTrackerDialog(
+            tracker = trackerToDelete,
+            onDismiss = { trackerToDelete = null },
+            onConfirm = { id -> viewModel.deleteTracker(id) },
+            appFont = appFont,
+            primaryColor = primaryColor,
+            textColor = textColor,
+            secondaryTextColor = secondaryTextColor,
+            cardBgColor = modalBgColor,
+            borderColor = borderColor
+        )
     }
 }
 
@@ -762,7 +863,7 @@ fun CompactStatsCard(
     textColor: Color = Color.White,
     secondaryTextColor: Color = Color.Gray
 ) {
-    val isLightCard = !ThemeStyles.isLightColor(textColor)
+    val isLightCard = ThemeStyles.isLightColor(cardBgColor.copy(alpha = 1f))
     Card(
         colors = CardDefaults.cardColors(containerColor = cardBgColor),
         border = borderStroke,
@@ -819,7 +920,12 @@ fun FilterSelector(
     primaryColor: Color,
     secondaryTextColor: Color,
     borderColor: Color,
-    isLight: Boolean = false
+    isLight: Boolean = false,
+    accentTextColor: Color = ThemeStyles.accentOnSurface(
+        primaryColor,
+        if (isLight) Color(0xFFF5F3EC) else Color(0xFF16181F),
+        fallbackInk = if (isLight) Color(0xFF141414) else Color.White
+    )
 ) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -836,7 +942,6 @@ fun FilterSelector(
             Box(
                 modifier = Modifier
                     .heightIn(min = 32.dp)
-                    .springPressScale(pressedScale = 0.92f)
                     .clip(RoundedCornerShape(6.dp))
                     .background(if (isSelected) primaryColor.copy(alpha = 0.18f) else Color.Transparent)
                     .clickable { onSelect(id) }
@@ -848,7 +953,7 @@ fun FilterSelector(
                     fontFamily = appFont,
                     fontSize = 11.sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                    color = if (isSelected) primaryColor else secondaryTextColor
+                    color = if (isSelected) accentTextColor else secondaryTextColor
                 )
             }
         }

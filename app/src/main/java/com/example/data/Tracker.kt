@@ -1,5 +1,6 @@
 package com.example.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -18,5 +19,8 @@ data class Tracker(
     val weeklyTarget: Int = 0,
     val isArchived: Boolean = false,
     val reminderEnabled: Boolean = false,
-    val reminderTime: String = "21:00"
+    val reminderTime: String = "21:00",
+    val pausedUntilDate: String? = null,
+    @ColumnInfo(defaultValue = "25")
+    val defaultFocusMinutes: Int = 25
 )

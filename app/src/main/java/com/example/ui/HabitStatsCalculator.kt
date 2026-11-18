@@ -50,7 +50,8 @@ object HabitStatsCalculator {
         freezeActive: String?,
         freezeHist: String,
         tracker: TrackerConfig,
-        today: LocalDate
+        today: LocalDate,
+        vacation: VacationPauseState = VacationPauseState()
     ): HabitStats {
         if (list.isEmpty()) return HabitStats()
 
@@ -59,7 +60,7 @@ object HabitStatsCalculator {
         val lastMonthDate = today.minusMonths(1)
 
         val totalSum = list.sumOf { it.count }
-        val (strengthScore, strengthStatus) = calculateHabitStrength(list, today, tracker)
+        val (strengthScore, strengthStatus) = calculateHabitStrength(list, today, tracker, vacation)
 
         var thisYearSum = 0
         var thisMonthSum = 0
@@ -192,7 +193,7 @@ object HabitStatsCalculator {
         }
 
         if (tracker.frequencyType == "weekly_quota") {
-            val streakRes = calculateWeeklyQuotaStreaks(list, today, tracker)
+            val streakRes = calculateWeeklyQuotaStreaks(list, today, tracker, vacation)
             return HabitStats(
                 totalCount = totalSum,
                 thisYearCount = thisYearSum,
@@ -210,7 +211,7 @@ object HabitStatsCalculator {
         }
 
         val frozenDates = freezeHist.split(",").filter { it.isNotBlank() }.toSet()
-        val streakRes = calculateStreaks(list, frozenDates, freezeActive, today, tracker)
+        val streakRes = calculateStreaks(list, frozenDates, freezeActive, today, tracker, vacation)
 
         return HabitStats(
             totalCount = totalSum,
@@ -231,7 +232,8 @@ object HabitStatsCalculator {
     fun calculateHabitStrength(
         list: List<HabitEntry>,
         today: LocalDate,
-        tracker: TrackerConfig
+        tracker: TrackerConfig,
+        vacation: VacationPauseState = VacationPauseState()
     ): Pair<Int, String> {
         if (list.isEmpty()) return Pair(0, "Starting 🌱")
 
@@ -257,17 +259,23 @@ object HabitStatsCalculator {
             var weekMon = startMonday
             while (!weekMon.isAfter(currentMonday)) {
                 var distinctCompletedDays = 0
+                var pausedDaysInWeek = 0
                 for (d in 0..6) {
-                    if (weekMon.plusDays(d.toLong()) in completionDates) {
+                    val day = weekMon.plusDays(d.toLong())
+                    if (day in completionDates) {
                         distinctCompletedDays++
+                    }
+                    if (VacationPauseHelper.isPausedOnEffectiveDate(day, tracker.pausedUntilDate, vacation)) {
+                        pausedDaysInWeek++
                     }
                 }
                 val isSuccessfulWeek = distinctCompletedDays >= weeklyTarget
+                val isProtectedWeek = pausedDaysInWeek >= 4
                 val isCurrentWeek = weekMon == currentMonday
 
                 if (isSuccessfulWeek) {
                     strength += alpha * (1.0 - strength)
-                } else if (!isCurrentWeek) {
+                } else if (!isCurrentWeek && !isProtectedWeek) {
                     strength *= (1.0 - beta)
                 }
                 weekMon = weekMon.plusWeeks(1)
@@ -286,19 +294,20 @@ object HabitStatsCalculator {
 
         var cur = startDate
         while (!cur.isAfter(today)) {
+            val isPaused = VacationPauseHelper.isPausedOnEffectiveDate(cur, tracker.pausedUntilDate, vacation)
             val isTargetDay = cur.dayOfWeek in allowedDaysSet
             if (tracker.type == "bad") {
                 val hadSlip = cur in completionDates
-                if (!hadSlip) {
+                if (!hadSlip && !isPaused) {
                     strength += alpha * (1.0 - strength)
-                } else {
+                } else if (hadSlip) {
                     strength *= (1.0 - beta * 2.5)
                 }
             } else if (isTargetDay) {
                 val done = cur in completionDates
                 if (done) {
                     strength += alpha * (1.0 - strength)
-                } else if (cur.isBefore(today)) {
+                } else if (cur.isBefore(today) && !isPaused) {
                     strength *= (1.0 - beta)
                 }
             }
@@ -320,7 +329,8 @@ object HabitStatsCalculator {
     fun calculateWeeklyQuotaStreaks(
         list: List<HabitEntry>,
         today: LocalDate,
-        tracker: TrackerConfig
+        tracker: TrackerConfig,
+        vacation: VacationPauseState = VacationPauseState()
     ): StreakResult {
         val targetCount = tracker.targetCount.coerceAtLeast(1)
         val weeklyTarget = tracker.weeklyTarget.coerceIn(1, 7)
@@ -338,16 +348,24 @@ object HabitStatsCalculator {
         val currentMonday = today.with(DayOfWeek.MONDAY)
 
         val completedWeeks = mutableSetOf<LocalDate>()
+        val protectedWeeks = mutableSetOf<LocalDate>()
         var weekCursor = startMonday
         while (!weekCursor.isAfter(currentMonday)) {
             var distinctCompletedDays = 0
+            var pausedDays = 0
             for (d in 0..6) {
-                if (weekCursor.plusDays(d.toLong()) in completedDates) {
+                val day = weekCursor.plusDays(d.toLong())
+                if (day in completedDates) {
                     distinctCompletedDays++
+                }
+                if (VacationPauseHelper.isPausedOnEffectiveDate(day, tracker.pausedUntilDate, vacation)) {
+                    pausedDays++
                 }
             }
             if (distinctCompletedDays >= weeklyTarget) {
                 completedWeeks.add(weekCursor)
+            } else if (pausedDays >= 4) {
+                protectedWeeks.add(weekCursor)
             }
             weekCursor = weekCursor.plusWeeks(1)
         }
@@ -363,6 +381,8 @@ object HabitStatsCalculator {
         while (!checkWeek.isBefore(startMonday)) {
             if (checkWeek in completedWeeks) {
                 currentStreak++
+                checkWeek = checkWeek.minusWeeks(1)
+            } else if (checkWeek in protectedWeeks) {
                 checkWeek = checkWeek.minusWeeks(1)
             } else {
                 break
@@ -386,7 +406,7 @@ object HabitStatsCalculator {
                     bestStart = tempStart
                     bestEnd = tempEnd
                 }
-            } else {
+            } else if (iterWeek !in protectedWeeks) {
                 tempStreak = 0
                 tempStart = null
             }
@@ -402,7 +422,8 @@ object HabitStatsCalculator {
         frozenDates: Set<String>,
         activeFreeze: String?,
         today: LocalDate,
-        tracker: TrackerConfig
+        tracker: TrackerConfig,
+        vacation: VacationPauseState = VacationPauseState()
     ): StreakResult {
         val target = tracker.targetCount.coerceAtLeast(1)
         val completedDates = list
@@ -430,9 +451,12 @@ object HabitStatsCalculator {
         }
 
         while (!checkDate.isBefore(firstDate.minusDays(7))) {
+            val isPaused = VacationPauseHelper.isPausedOnEffectiveDate(checkDate, tracker.pausedUntilDate, vacation)
             if (checkDate.dayOfWeek in scheduledDays) {
                 if (checkDate in dateSet) {
                     currentStreak++
+                    checkDate = checkDate.minusDays(1)
+                } else if (isPaused) {
                     checkDate = checkDate.minusDays(1)
                 } else {
                     break
@@ -450,6 +474,7 @@ object HabitStatsCalculator {
 
         var cur = firstDate
         while (!cur.isAfter(today)) {
+            val isPaused = VacationPauseHelper.isPausedOnEffectiveDate(cur, tracker.pausedUntilDate, vacation)
             if (cur.dayOfWeek in scheduledDays) {
                 if (cur in dateSet) {
                     if (tempStreak == 0) tempStart = cur
@@ -459,7 +484,7 @@ object HabitStatsCalculator {
                         bestStart = tempStart
                         bestEnd = cur
                     }
-                } else {
+                } else if (!isPaused) {
                     tempStreak = 0
                     tempStart = null
                 }

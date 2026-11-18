@@ -179,6 +179,19 @@ object ReminderManager {
         if (tracker.isArchived || !tracker.reminderEnabled) return false
         val dayRolloverHour = db.habitDao().getPreferenceValue("day_rollover_hour")?.toIntOrNull() ?: 0
         val effectiveToday = getEffectiveToday(dayRolloverHour, now)
+
+        val vacationEnabled = db.habitDao().getPreferenceValue(com.example.ui.VacationPauseHelper.KEY_VACATION_ENABLED) == "true"
+        val vacationStart = db.habitDao().getPreferenceValue(com.example.ui.VacationPauseHelper.KEY_VACATION_START)
+        val vacationEnd = db.habitDao().getPreferenceValue(com.example.ui.VacationPauseHelper.KEY_VACATION_END)
+        val vacationState = com.example.ui.VacationPauseState(
+            globalEnabled = vacationEnabled,
+            globalStartDate = vacationStart,
+            globalEndDate = vacationEnd
+        )
+        if (com.example.ui.VacationPauseHelper.isPausedOnEffectiveDate(effectiveToday, tracker.pausedUntilDate, vacationState)) {
+            return false
+        }
+
         if (!isDateEligibleForReminder(tracker, effectiveToday)) return false
 
         val todayEntries = db.habitDao().getEntriesForTrackerAndDate(tracker.id, effectiveToday.toString())

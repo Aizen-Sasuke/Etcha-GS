@@ -2,8 +2,6 @@ package com.example.ui.screens
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -15,7 +13,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -26,7 +24,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -40,9 +37,7 @@ import com.example.ui.HabitViewModel
 import com.example.ui.ThemeStyles
 import com.example.ui.components.LiquidAmbientBackdrop
 import com.example.ui.components.MotionSpecs
-import com.example.ui.components.StaggeredReveal
 import com.example.ui.components.recessedWell
-import com.example.ui.components.springPressScale
 import com.example.ui.components.surface3DCard
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -56,16 +51,22 @@ fun FontPickerModal(
     val customHex by viewModel.customPrimaryColor.collectAsState()
     val customBgHex by viewModel.customBackgroundColor.collectAsState()
     val selectedFont by viewModel.selectedFont.collectAsState()
+    val ambientMotionEnabled by viewModel.ambientMotionEnabled.collectAsState()
 
-    val isLight = ThemeStyles.isLightTheme(selectedTheme, customBgHex)
-    val isGlass = ThemeStyles.isGlassTheme(selectedTheme)
-    val cardBgColor = ThemeStyles.getCardBackgroundColor(selectedTheme, customBgHex)
-    val borderColor = ThemeStyles.getBorderColor(selectedTheme, customBgHex)
-    val primaryColor = ThemeStyles.getPrimaryColor(selectedTheme, customHex)
+    val palette = remember(selectedTheme, customHex, customBgHex) {
+        ThemeStyles.resolvePalette(selectedTheme, customHex, customBgHex)
+    }
+    val isLight = !palette.isDark
+    val isGlass = palette.isGlass
+    val cardBgColor = palette.cardSurface
+    val borderColor = palette.border
+    val primaryColor = palette.primary
+    val onPrimaryColor = palette.onPrimary
+    val accentTextColor = palette.accentOnSurface
+    val neutralWell = palette.neutralWell
     val appFont = ThemeStyles.getSelectedFontFamily(selectedFont)
-    val textColor = ThemeStyles.getTextColor(selectedTheme, customBgHex)
-    val secondaryTextColor = ThemeStyles.getSecondaryTextColor(selectedTheme, customBgHex)
-    val accentTextColor = if (primaryColor == Color.White) textColor else primaryColor
+    val textColor = palette.textPrimary
+    val secondaryTextColor = palette.textSecondary
 
     var visible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { visible = true }
@@ -99,6 +100,7 @@ fun FontPickerModal(
                 selectedTheme = selectedTheme,
                 customPrimaryHex = customHex,
                 customBackgroundHex = customBgHex,
+                animateMotion = ambientMotionEnabled,
                 modifier = Modifier.fillMaxSize()
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
@@ -113,9 +115,7 @@ fun FontPickerModal(
                     ) {
                         IconButton(
                             onClick = { closeAndDismiss() },
-                            modifier = Modifier
-                                .size(48.dp)
-                                .springPressScale(pressedScale = 0.88f)
+                            modifier = Modifier.size(48.dp)
                         ) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close", tint = textColor)
                         }
@@ -227,132 +227,119 @@ fun FontPickerModal(
                             }
                         }
 
-                        itemsIndexed(
+                        items(
                             items = ThemeStyles.FONT_OPTIONS,
-                            key = { _, pair -> pair.first }
-                        ) { index, (fontId, fontName) ->
+                            key = { it.first }
+                        ) { (fontId, fontName) ->
                             val isSelected = selectedFont == fontId ||
                                 (fontId == ThemeStyles.DEFAULT_FONT_ID && ThemeStyles.FONT_OPTIONS.none { it.first == selectedFont })
                             val actualFont = ThemeStyles.getSelectedFontFamily(fontId)
                             val roleTag = ThemeStyles.FONT_ROLE_TAGS[fontId] ?: "Studio Type"
-                            val rowBg by animateColorAsState(
-                                targetValue = if (isSelected) primaryColor.copy(alpha = 0.14f) else cardBgColor,
-                                animationSpec = tween(200),
-                                label = "font_row_bg_$fontId"
-                            )
-                            val rowScale by animateFloatAsState(
-                                targetValue = if (isSelected) 1.012f else 1f,
-                                animationSpec = MotionSpecs.BouncyPopSpring,
-                                label = "font_row_scale_$fontId"
-                            )
+                            val rowBg = if (isSelected) primaryColor.copy(alpha = 0.14f) else cardBgColor
                             val cardShape = RoundedCornerShape(16.dp)
 
-                            StaggeredReveal(index = index.coerceAtMost(4)) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .scale(rowScale)
-                                        .springPressScale(pressedScale = 0.965f)
-                                        .heightIn(min = 82.dp)
-                                        .surface3DCard(
-                                            shape = cardShape,
-                                            isLight = isLight,
-                                            primaryColor = primaryColor,
-                                            isGlass = isGlass,
-                                            elevationDp = if (isSelected) 7.dp else 4.dp
-                                        )
-                                        .clip(cardShape)
-                                        .background(rowBg)
-                                        .border(
-                                            width = if (isSelected) 1.6.dp else 0.9.dp,
-                                            color = if (isSelected) primaryColor else borderColor,
-                                            shape = cardShape
-                                        )
-                                        .clickable { viewModel.setSelectedFont(fontId) }
-                                        .padding(horizontal = 16.dp, vertical = 14.dp)
-                                        .testTag("font_row_$fontId"),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 82.dp)
+                                    .surface3DCard(
+                                        shape = cardShape,
+                                        isLight = isLight,
+                                        primaryColor = primaryColor,
+                                        isGlass = isGlass,
+                                        elevationDp = if (isSelected) 7.dp else 4.dp
+                                    )
+                                    .clip(cardShape)
+                                    .background(rowBg)
+                                    .border(
+                                        width = if (isSelected) 1.6.dp else 0.9.dp,
+                                        color = if (isSelected) primaryColor else borderColor,
+                                        shape = cardShape
+                                    )
+                                    .clickable { viewModel.setSelectedFont(fontId) }
+                                    .padding(horizontal = 16.dp, vertical = 14.dp)
+                                    .testTag("font_row_$fontId"),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(
+                                    modifier = Modifier.weight(1f).padding(end = 10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
-                                    Column(
-                                        modifier = Modifier.weight(1f).padding(end = 10.dp),
-                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Text(
-                                                text = fontName,
-                                                fontFamily = actualFont,
-                                                fontSize = 17.sp,
-                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
-                                                color = if (isSelected) accentTextColor else textColor,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            if (fontId == ThemeStyles.DEFAULT_FONT_ID) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .clip(RoundedCornerShape(6.dp))
-                                                        .background(primaryColor.copy(alpha = 0.16f))
-                                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                                ) {
-                                                    Text(
-                                                        text = "DEFAULT",
-                                                        fontFamily = actualFont,
-                                                        fontSize = 8.5.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = accentTextColor
-                                                    )
-                                                }
-                                            }
-                                        }
                                         Text(
-                                            text = "$roleTag · Daily clarity & momentum",
+                                            text = fontName,
                                             fontFamily = actualFont,
-                                            fontSize = 11.5.sp,
-                                            color = secondaryTextColor,
+                                            fontSize = 17.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                                            color = if (isSelected) accentTextColor else textColor,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
-                                    }
-
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .recessedWell(RoundedCornerShape(10.dp), isLight = isLight)
-                                                .clip(RoundedCornerShape(10.dp))
-                                                .background(borderColor.copy(alpha = if (isLight) 0.14f else 0.18f))
-                                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(
-                                                text = "Aa 123",
-                                                fontFamily = actualFont,
-                                                fontSize = 13.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = textColor
-                                            )
-                                        }
-                                        if (isSelected) {
+                                        if (fontId == ThemeStyles.DEFAULT_FONT_ID) {
                                             Box(
                                                 modifier = Modifier
-                                                    .size(26.dp)
-                                                    .clip(CircleShape)
-                                                    .background(primaryColor),
-                                                contentAlignment = Alignment.Center
+                                                    .clip(RoundedCornerShape(6.dp))
+                                                    .background(primaryColor.copy(alpha = 0.16f))
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
                                             ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Check,
-                                                    contentDescription = "Selected",
-                                                    tint = if (ThemeStyles.isLightColor(primaryColor)) Color.Black else Color.White,
-                                                    modifier = Modifier.size(15.dp)
+                                                Text(
+                                                    text = "DEFAULT",
+                                                    fontFamily = actualFont,
+                                                    fontSize = 8.5.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = accentTextColor
                                                 )
                                             }
+                                        }
+                                    }
+                                    Text(
+                                        text = "$roleTag · Daily clarity & momentum",
+                                        fontFamily = actualFont,
+                                        fontSize = 11.5.sp,
+                                        color = secondaryTextColor,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .recessedWell(RoundedCornerShape(10.dp), isLight = isLight)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(neutralWell)
+                                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "Aa 123",
+                                            fontFamily = actualFont,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = textColor
+                                        )
+                                    }
+                                    if (isSelected) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(26.dp)
+                                                .clip(CircleShape)
+                                                .background(primaryColor),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Check,
+                                                contentDescription = "Selected",
+                                                tint = onPrimaryColor,
+                                                modifier = Modifier.size(15.dp)
+                                            )
                                         }
                                     }
                                 }

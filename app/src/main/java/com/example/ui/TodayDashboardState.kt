@@ -1,5 +1,6 @@
 package com.example.ui
 
+import androidx.compose.runtime.Immutable
 import com.example.data.HabitEntry
 import com.example.data.Tracker
 import com.example.worker.ReminderManager
@@ -16,10 +17,12 @@ enum class TodayHabitStatus {
     REST_DAY,
     QUOTA_MET,
     FROZEN,
+    PAUSED,
     BAD_CLEAN,
     BAD_SLIP
 }
 
+@Immutable
 data class TodayHabitItem(
     val tracker: TrackerConfig,
     val status: TodayHabitStatus,
@@ -33,9 +36,12 @@ data class TodayHabitItem(
     val isWeeklyQuota: Boolean,
     val reminderSummary: String?,
     val isReminderUpcomingToday: Boolean,
-    val statusLabel: String
+    val statusLabel: String,
+    val isPausedToday: Boolean = false,
+    val pauseSummary: String? = null
 )
 
+@Immutable
 data class TodayDashboardState(
     val effectiveToday: LocalDate = LocalDate.now(),
     val attentionItems: List<TodayHabitItem> = emptyList(),
@@ -47,6 +53,7 @@ data class TodayDashboardState(
     val overallProgress: Float = 0f,
     val nextReminderText: String? = null,
     val isTodayFrozen: Boolean = false,
+    val isVacationActive: Boolean = false,
     val totalActiveCount: Int = 0,
     val allItems: List<TodayHabitItem> = emptyList()
 )
@@ -97,11 +104,15 @@ object TodayDashboardCalculator {
         val frozenDates = freezeHist.split(",").filter { it.isNotBlank() }.toSet()
         val isTodayFrozen = (freezeActive == todayStr) || (todayStr in frozenDates)
 
+        val vacation = VacationPauseHelper.fromPreferences(preferences)
+        val isVacationActive = VacationPauseHelper.isDateInGlobalVacation(effectiveToday, vacation)
+
         val activeTrackers = trackers.filter { !it.isArchived }
         if (activeTrackers.isEmpty()) {
             return TodayDashboardState(
                 effectiveToday = effectiveToday,
                 isTodayFrozen = isTodayFrozen,
+                isVacationActive = isVacationActive,
                 totalActiveCount = 0
             )
         }
@@ -147,10 +158,27 @@ object TodayDashboardCalculator {
 
             val scheduledDays = getScheduledDaysOfWeek(tracker)
             val isRestDay = !isWeeklyQuota && tracker.type != "bad" && (effectiveToday.dayOfWeek !in scheduledDays)
+            val isPausedToday = VacationPauseHelper.isPausedOnEffectiveDate(
+                date = effectiveToday,
+                pausedUntilDate = tracker.pausedUntilDate,
+                vacation = vacation
+            )
+            val pauseSummary = if (isPausedToday) {
+                VacationPauseHelper.formatTrackerPauseBadge(tracker.pausedUntilDate, vacation, effectiveToday)
+            } else {
+                null
+            }
 
             val status = when {
                 tracker.type == "bad" -> {
-                    if (todayCount > 0) TodayHabitStatus.BAD_SLIP else TodayHabitStatus.BAD_CLEAN
+                    when {
+                        todayCount > 0 -> TodayHabitStatus.BAD_SLIP
+                        isPausedToday -> TodayHabitStatus.PAUSED
+                        else -> TodayHabitStatus.BAD_CLEAN
+                    }
+                }
+                isPausedToday -> {
+                    if (todayCount >= targetCount) TodayHabitStatus.COMPLETED else TodayHabitStatus.PAUSED
                 }
                 isWeeklyQuota -> {
                     when {
@@ -172,12 +200,14 @@ object TodayDashboardCalculator {
 
             // Overall due-habit progress:
             // Only actionable due good/misc habits contribute to the daily due denominator.
-            // Rest days, already-met weekly quotas, frozen days, and avoidance habits are tracked cleanly outside due failures.
+            // Rest days, paused/vacation habits, already-met weekly quotas, frozen days, and avoidance habits are tracked outside due failures.
             val countsAsDueToday = when {
                 tracker.type == "bad" -> false
                 isRestDay -> false
+                isPausedToday -> false
                 status == TodayHabitStatus.QUOTA_MET -> false
                 status == TodayHabitStatus.FROZEN -> false
+                status == TodayHabitStatus.PAUSED -> false
                 else -> true
             }
 
@@ -196,7 +226,10 @@ object TodayDashboardCalculator {
                 status == TodayHabitStatus.IN_PROGRESS ||
                 status == TodayHabitStatus.BAD_CLEAN
 
-            if (tracker.reminderEnabled) {
+            if (isPausedToday) {
+                reminderSummary = pauseSummary ?: "Vacation pause"
+                isReminderUpcomingToday = false
+            } else if (tracker.reminderEnabled) {
                 val nextTrigger = ReminderManager.calculateNextTriggerDateTime(
                     tracker = tracker.toEntity(),
                     now = now
@@ -232,6 +265,7 @@ object TodayDashboardCalculator {
                 }
                 TodayHabitStatus.COMPLETED -> when {
                     isWeeklyQuota -> "Done today · $weeklyCompletedDays/$weeklyTarget this week"
+                    isPausedToday -> "Bonus logged while paused"
                     isRestDay -> "Bonus logged on rest day"
                     targetCount > 1 -> "Completed ($todayCount/$targetCount)"
                     else -> "Completed today"
@@ -243,6 +277,7 @@ object TodayDashboardCalculator {
                 }
                 TodayHabitStatus.QUOTA_MET -> "Weekly goal met ($weeklyCompletedDays/$weeklyTarget)"
                 TodayHabitStatus.FROZEN -> "Frozen today · Streak protected"
+                TodayHabitStatus.PAUSED -> pauseSummary ?: "Paused · Streak protected"
                 TodayHabitStatus.BAD_CLEAN -> "Clean today — stay disciplined"
                 TodayHabitStatus.BAD_SLIP -> "Slip recorded today · Keep moving forward"
             }
@@ -260,7 +295,9 @@ object TodayDashboardCalculator {
                 isWeeklyQuota = isWeeklyQuota,
                 reminderSummary = reminderSummary,
                 isReminderUpcomingToday = isReminderUpcomingToday,
-                statusLabel = statusLabel
+                statusLabel = statusLabel,
+                isPausedToday = isPausedToday,
+                pauseSummary = pauseSummary
             )
 
             allItems.add(item)
@@ -272,7 +309,8 @@ object TodayDashboardCalculator {
                 TodayHabitStatus.COMPLETED -> completedItems.add(item)
                 TodayHabitStatus.REST_DAY,
                 TodayHabitStatus.QUOTA_MET,
-                TodayHabitStatus.FROZEN -> restAndProtectedItems.add(item)
+                TodayHabitStatus.FROZEN,
+                TodayHabitStatus.PAUSED -> restAndProtectedItems.add(item)
             }
         }
 
@@ -289,6 +327,7 @@ object TodayDashboardCalculator {
         }
 
         val nextReminderText = when {
+            isVacationActive -> "🌴 Vacation mode · Reminders paused"
             earliestUpcomingTrigger != null -> {
                 val (triggerDt, tr) = earliestUpcomingTrigger
                 val timeFmt = String.format(Locale.US, "%02d:%02d", triggerDt.hour, triggerDt.minute)
@@ -314,6 +353,7 @@ object TodayDashboardCalculator {
             overallProgress = overallProgress,
             nextReminderText = nextReminderText,
             isTodayFrozen = isTodayFrozen,
+            isVacationActive = isVacationActive,
             totalActiveCount = activeTrackers.size,
             allItems = allItems
         )
@@ -332,6 +372,8 @@ object TodayDashboardCalculator {
         weeklyTarget = weeklyTarget,
         isArchived = isArchived,
         reminderEnabled = reminderEnabled,
-        reminderTime = reminderTime
+        reminderTime = reminderTime,
+        pausedUntilDate = pausedUntilDate,
+        defaultFocusMinutes = defaultFocusMinutes
     )
 }

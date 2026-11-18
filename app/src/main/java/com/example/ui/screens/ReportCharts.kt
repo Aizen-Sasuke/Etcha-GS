@@ -53,7 +53,6 @@ import com.example.ui.WeeklyConsistencyPoint
 import com.example.ui.ThemeStyles
 import com.example.ui.components.MotionSpecs
 import com.example.ui.components.recessedWell
-import com.example.ui.components.springPressScale
 import com.example.ui.components.surface3DCard
 import kotlin.math.roundToInt
 
@@ -85,6 +84,7 @@ fun InteractiveMonthlyTrendChart(
         if (dataPoints.isEmpty()) 0.0 else dataPoints.map { it.count }.average()
     }
     val inspectedPoint = selectedIndex?.let { dataPoints.getOrNull(it) }
+    val headerAccent = ThemeStyles.accentOnSurface(lineColor, cardBgColor.copy(alpha = 1f), fallbackInk = textColor)
 
     Column(modifier = modifier.fillMaxWidth()) {
         // Tooltip / Summary Header Row
@@ -105,7 +105,7 @@ fun InteractiveMonthlyTrendChart(
                 fontFamily = appFont,
                 fontSize = 11.5.sp,
                 fontWeight = if (inspectedPoint != null) FontWeight.Bold else FontWeight.Normal,
-                color = if (inspectedPoint != null) lineColor else secondaryTextColor,
+                color = if (inspectedPoint != null) headerAccent else secondaryTextColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -295,11 +295,20 @@ fun InteractiveDayOfWeekBarChart(
     primaryColor: Color,
     secondaryTextColor: Color,
     gridColor: Color,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    cardBgColor: Color = Color.Unspecified
 ) {
     val textMeasurer = rememberTextMeasurer()
     val animatedProgress = remember(dataPoints) { Animatable(0f) }
     var selectedBarIndex by remember(dataPoints) { mutableStateOf<Int?>(null) }
+    val inferredSurface = if (cardBgColor != Color.Unspecified) {
+        cardBgColor.copy(alpha = 1f)
+    } else if (ThemeStyles.isLightColor(secondaryTextColor)) {
+        Color(0xFF16181F)
+    } else {
+        Color(0xFFF5F3EC)
+    }
+    val summaryAccent = ThemeStyles.accentOnSurface(primaryColor, inferredSurface)
 
     LaunchedEffect(dataPoints) {
         animatedProgress.snapTo(0f)
@@ -337,7 +346,7 @@ fun InteractiveDayOfWeekBarChart(
                 fontFamily = appFont,
                 fontSize = 11.5.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = if (inspectedStat != null) primaryColor else secondaryTextColor
+                color = if (inspectedStat != null) summaryAccent else secondaryTextColor
             )
         }
 
@@ -447,7 +456,8 @@ fun WeeklyConsistencyChartCard(
     }
     val inspected = selectedWeekIdx?.let { points.getOrNull(it) }
 
-    val isLight = !ThemeStyles.isLightColor(textColor)
+    val isLight = ThemeStyles.isLightColor(cardBgColor.copy(alpha = 1f))
+    val accentText = ThemeStyles.accentOnSurface(primaryColor, cardBgColor.copy(alpha = 1f), fallbackInk = textColor)
     Card(
         colors = CardDefaults.cardColors(containerColor = cardBgColor),
         border = BorderStroke(0.5.dp, borderColor),
@@ -488,7 +498,7 @@ fun WeeklyConsistencyChartCard(
                         fontFamily = appFont,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = if (inspected != null) primaryColor else textColor
+                        color = if (inspected != null) accentText else textColor
                     )
                 }
                 Box(
@@ -502,7 +512,7 @@ fun WeeklyConsistencyChartCard(
                         fontFamily = appFont,
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.Bold,
-                        color = primaryColor
+                        color = accentText
                     )
                 }
             }
@@ -531,7 +541,6 @@ fun WeeklyConsistencyChartCard(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight()
-                            .springPressScale(pressedScale = 0.88f)
                             .clip(RoundedCornerShape(6.dp))
                             .testTag("weekly_bar_$idx")
                             .clickable { selectedWeekIdx = if (isSel) null else idx },
@@ -590,7 +599,8 @@ fun MoodAndRhythmBreakdownCard(
 ) {
     if (moods.isEmpty() && timeOfDay.isEmpty()) return
 
-    val isLight = !ThemeStyles.isLightColor(textColor)
+    val isLight = ThemeStyles.isLightColor(cardBgColor.copy(alpha = 1f))
+    val accentText = ThemeStyles.accentOnSurface(primaryColor, cardBgColor.copy(alpha = 1f), fallbackInk = textColor)
     Card(
         colors = CardDefaults.cardColors(containerColor = cardBgColor),
         border = BorderStroke(0.5.dp, borderColor),
@@ -630,7 +640,7 @@ fun MoodAndRhythmBreakdownCard(
                                 fontFamily = appFont,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = primaryColor
+                                color = accentText
                             )
                         }
                     }
@@ -661,7 +671,7 @@ fun MoodAndRhythmBreakdownCard(
                                     fontFamily = appFont,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (isPeak) primaryColor else textColor
+                                    color = if (isPeak) accentText else textColor
                                 )
                                 Text(
                                     text = slot.label,

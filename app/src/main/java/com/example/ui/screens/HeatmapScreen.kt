@@ -11,9 +11,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -23,7 +23,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -32,15 +31,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.graphics.toColorInt
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.HabitEntry
 import com.example.ui.HabitStatsCalculator
 import com.example.ui.HabitViewModel
 import com.example.ui.ThemeStyles
 import com.example.ui.TrackerConfig
-import com.example.ui.components.StaggeredReveal
-import com.example.ui.components.springPressScale
 import com.example.ui.components.surface3DCard
 import com.example.worker.ReminderManager
 import java.time.Instant
@@ -204,36 +200,25 @@ fun HeatmapScreen(
     val appFont = ThemeStyles.getSelectedFontFamily(selectedFont)
     val customHex by viewModel.customPrimaryColor.collectAsStateWithLifecycle()
     val customBgHex by viewModel.customBackgroundColor.collectAsStateWithLifecycle()
-    val isGlass = ThemeStyles.isGlassTheme(selectedTheme)
-    val isLight = ThemeStyles.isLightTheme(selectedTheme, customBgHex)
-    val bgColor = ThemeStyles.getBackgroundColor(selectedTheme, customBgHex)
-    val cardBgColor = ThemeStyles.getCardBackgroundColor(selectedTheme, customBgHex)
-    val modalBgColor = ThemeStyles.getOpaqueCardColor(selectedTheme, customBgHex)
-    val borderColor = ThemeStyles.getBorderColor(selectedTheme, customBgHex)
+    val palette = remember(selectedTheme, customHex, customBgHex) {
+        ThemeStyles.resolvePalette(selectedTheme, customHex, customBgHex)
+    }
+    val isGlass = palette.isGlass
+    val isLight = !palette.isDark
+    val bgColor = palette.background
+    val cardBgColor = palette.cardSurface
+    val modalBgColor = palette.modalSurface
+    val borderColor = palette.border
     val cardStroke = ThemeStyles.getGlassBorderStroke(selectedTheme, customBgHex)
-    val basePrimaryColor = ThemeStyles.getPrimaryColor(selectedTheme, customHex)
-    val textColor = ThemeStyles.getTextColor(selectedTheme, customBgHex)
-    val secondaryTextColor = ThemeStyles.getSecondaryTextColor(selectedTheme, customBgHex)
-    val onPrimaryColor = if (ThemeStyles.isLightColor(basePrimaryColor)) Color.Black else Color.White
-    val emptyCellColor = if (isLight) {
-        borderColor.copy(alpha = 0.22f)
-    } else {
-        borderColor.copy(alpha = 0.28f)
-    }
-    val listRowBgColor = if (isLight) {
-        borderColor.copy(alpha = 0.14f)
-    } else {
-        borderColor.copy(alpha = 0.22f)
-    }
+    val primaryColor = palette.primary
+    val accentTextColor = palette.accentOnSurface
+    val textColor = palette.textPrimary
+    val secondaryTextColor = palette.textSecondary
+    val onPrimaryColor = palette.onPrimary
+    val emptyCellColor = borderColor.copy(alpha = if (isLight) 0.22f else 0.28f)
+    val listRowBgColor = borderColor.copy(alpha = if (isLight) 0.14f else 0.22f)
 
     val activeTracker by viewModel.reportTracker.collectAsStateWithLifecycle()
-    val primaryColor = activeTracker.accentColor?.let {
-        try {
-            Color(it.toColorInt())
-        } catch (_: Exception) {
-            basePrimaryColor
-        }
-    } ?: basePrimaryColor
 
     val entries by viewModel.reportEntries.collectAsStateWithLifecycle(initialValue = emptyList())
     val freezeActive by viewModel.streakFreezeDate.collectAsStateWithLifecycle()
@@ -266,7 +251,6 @@ fun HeatmapScreen(
         )
     }
 
-    val scrollState = rememberScrollState()
     var showCellDetails by remember { mutableStateOf(false) }
     var selectedCellDate by remember { mutableStateOf<LocalDate?>(null) }
     var selectedCellEntries by remember { mutableStateOf<List<HabitEntry>>(emptyList()) }
@@ -305,7 +289,7 @@ fun HeatmapScreen(
                         "No check-ins recorded on this day"
                     },
                     fontSize = 14.sp,
-                    color = if (totalCount > 0) primaryColor else secondaryTextColor,
+                    color = if (totalCount > 0) accentTextColor else secondaryTextColor,
                     fontWeight = FontWeight.SemiBold
                 )
 
@@ -358,7 +342,7 @@ fun HeatmapScreen(
                                 Text(
                                     fontFamily = appFont,
                                     text = "+${entry.count}",
-                                    color = primaryColor,
+                                    color = accentTextColor,
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -384,161 +368,160 @@ fun HeatmapScreen(
             .background(if (isGlass) Color.Transparent else bgColor)
             .padding(horizontal = DesignTokens.ScreenHorizontalPadding)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(scrollState)
-                .padding(bottom = 84.dp),
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(top = 4.dp, bottom = 84.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Spacer(modifier = Modifier.height(4.dp))
-
             // Title & Habit Subtitle
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                    Text(
-                        text = "Activity Heatmap",
-                        fontFamily = appFont,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 24.sp,
-                        color = textColor
-                    )
-                    Text(
-                        fontFamily = appFont,
-                        text = "${activeTracker.icon} ${activeTracker.title} · Tap any day cell to inspect logs",
-                        fontSize = 12.sp,
-                        color = secondaryTextColor,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            // Period / Year Filter Row
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                availablePeriods.forEach { (key, label) ->
-                    val isSelected = selectedPeriodKey == key
-                    Box(
-                        modifier = Modifier
-                            .heightIn(min = 36.dp)
-                            .springPressScale(pressedScale = 0.92f)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(if (isSelected) basePrimaryColor else cardBgColor)
-                            .border(
-                                width = if (isSelected) 1.dp else 0.5.dp,
-                                color = if (isSelected) basePrimaryColor else borderColor,
-                                shape = RoundedCornerShape(10.dp)
-                            )
-                            .clickable { selectedPeriodKey = key }
-                            .padding(horizontal = 14.dp, vertical = 8.dp)
-                            .testTag("heatmap_period_$key"),
-                        contentAlignment = Alignment.Center
-                    ) {
+            item(key = "heatmap_header") {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                         Text(
-                            text = label,
+                            text = "Activity Heatmap",
                             fontFamily = appFont,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 24.sp,
+                            color = textColor
+                        )
+                        Text(
+                            fontFamily = appFont,
+                            text = "${activeTracker.icon} ${activeTracker.title} · Tap any day cell to inspect logs",
                             fontSize = 12.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                            color = if (isSelected) onPrimaryColor else secondaryTextColor
+                            color = secondaryTextColor,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
             }
 
-            // Symmetrical 2x2 Summary KPI Strip
-            StaggeredReveal(index = 0) {
-            val streakUnit = if (activeTracker.frequencyType == "weekly_quota") "wks" else "days"
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            // Period / Year Filter Row
+            item(key = "heatmap_periods") {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(IntrinsicSize.Max),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    HeatmapStatCard(
-                        title = "Active Days",
-                        value = "${gridModel.summary.activeDays}",
-                        appFont = appFont,
-                        cardBgColor = cardBgColor,
-                        borderStroke = cardStroke,
-                        textColor = textColor,
-                        secondaryTextColor = secondaryTextColor,
-                        accentColor = primaryColor,
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .heightIn(min = 76.dp)
-                            .testTag("heatmap_stat_active_days")
-                    )
-                    HeatmapStatCard(
-                        title = "Best Streak",
-                        value = "${gridModel.summary.bestStreak} $streakUnit",
-                        appFont = appFont,
-                        cardBgColor = cardBgColor,
-                        borderStroke = cardStroke,
-                        textColor = textColor,
-                        secondaryTextColor = secondaryTextColor,
-                        accentColor = textColor,
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .heightIn(min = 76.dp)
-                            .testTag("heatmap_stat_best_streak")
-                    )
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(IntrinsicSize.Max),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    HeatmapStatCard(
-                        title = "Total Signals",
-                        value = "${gridModel.summary.totalSignals}",
-                        appFont = appFont,
-                        cardBgColor = cardBgColor,
-                        borderStroke = cardStroke,
-                        textColor = textColor,
-                        secondaryTextColor = secondaryTextColor,
-                        accentColor = textColor,
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .heightIn(min = 76.dp)
-                            .testTag("heatmap_stat_total_signals")
-                    )
-                    HeatmapStatCard(
-                        title = "Best Day",
-                        value = gridModel.summary.bestDayLabel,
-                        appFont = appFont,
-                        cardBgColor = cardBgColor,
-                        borderStroke = cardStroke,
-                        textColor = textColor,
-                        secondaryTextColor = secondaryTextColor,
-                        accentColor = primaryColor,
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .heightIn(min = 76.dp)
-                            .testTag("heatmap_stat_best_day")
-                    )
+                    availablePeriods.forEach { (key, label) ->
+                        val isSelected = selectedPeriodKey == key
+                        Box(
+                            modifier = Modifier
+                                .heightIn(min = 36.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (isSelected) primaryColor else cardBgColor)
+                                .border(
+                                    width = if (isSelected) 1.dp else 0.5.dp,
+                                    color = if (isSelected) primaryColor else borderColor,
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                                .clickable { selectedPeriodKey = key }
+                                .padding(horizontal = 14.dp, vertical = 8.dp)
+                                .testTag("heatmap_period_$key"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = label,
+                                fontFamily = appFont,
+                                fontSize = 12.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSelected) onPrimaryColor else secondaryTextColor
+                            )
+                        }
+                    }
                 }
             }
+
+            // Symmetrical 2x2 Summary KPI Strip
+            item(key = "heatmap_kpi_strip") {
+                val streakUnit = if (activeTracker.frequencyType == "weekly_quota") "wks" else "days"
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(IntrinsicSize.Max),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        HeatmapStatCard(
+                            title = "Active Days",
+                            value = "${gridModel.summary.activeDays}",
+                            appFont = appFont,
+                            cardBgColor = cardBgColor,
+                            borderStroke = cardStroke,
+                            textColor = textColor,
+                            secondaryTextColor = secondaryTextColor,
+                            accentColor = accentTextColor,
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .heightIn(min = 76.dp)
+                                .testTag("heatmap_stat_active_days")
+                        )
+                        HeatmapStatCard(
+                            title = "Best Streak",
+                            value = "${gridModel.summary.bestStreak} $streakUnit",
+                            appFont = appFont,
+                            cardBgColor = cardBgColor,
+                            borderStroke = cardStroke,
+                            textColor = textColor,
+                            secondaryTextColor = secondaryTextColor,
+                            accentColor = textColor,
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .heightIn(min = 76.dp)
+                                .testTag("heatmap_stat_best_streak")
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(IntrinsicSize.Max),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        HeatmapStatCard(
+                            title = "Total Signals",
+                            value = "${gridModel.summary.totalSignals}",
+                            appFont = appFont,
+                            cardBgColor = cardBgColor,
+                            borderStroke = cardStroke,
+                            textColor = textColor,
+                            secondaryTextColor = secondaryTextColor,
+                            accentColor = textColor,
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .heightIn(min = 76.dp)
+                                .testTag("heatmap_stat_total_signals")
+                        )
+                        HeatmapStatCard(
+                            title = "Best Day",
+                            value = gridModel.summary.bestDayLabel,
+                            appFont = appFont,
+                            cardBgColor = cardBgColor,
+                            borderStroke = cardStroke,
+                            textColor = textColor,
+                            secondaryTextColor = secondaryTextColor,
+                            accentColor = accentTextColor,
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .heightIn(min = 76.dp)
+                                .testTag("heatmap_stat_best_day")
+                        )
+                    }
+                }
             }
 
             // Adaptive Responsive Heatmap Card with aligned month headers
-            StaggeredReveal(index = 1) {
+            item(key = "heatmap_grid_card") {
             Card(
                 colors = CardDefaults.cardColors(containerColor = cardBgColor),
                 border = cardStroke,
@@ -666,7 +649,6 @@ fun HeatmapScreen(
                                                     Box(
                                                         modifier = Modifier
                                                             .size(cellSize)
-                                                            .springPressScale(pressedScale = 0.84f)
                                                             .clip(RoundedCornerShape(4.dp))
                                                             .background(cellColor)
                                                             .then(
@@ -760,7 +742,8 @@ private fun HeatmapStatCard(
     accentColor: Color,
     modifier: Modifier = Modifier
 ) {
-    val isLightCard = !ThemeStyles.isLightColor(textColor)
+    val isLightCard = ThemeStyles.isLightColor(cardBgColor.copy(alpha = 1f))
+    val resolvedAccent = ThemeStyles.accentOnSurface(accentColor, cardBgColor.copy(alpha = 1f), fallbackInk = textColor)
     Card(
         colors = CardDefaults.cardColors(containerColor = cardBgColor),
         border = borderStroke,
@@ -791,7 +774,7 @@ private fun HeatmapStatCard(
                 fontFamily = appFont,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
-                color = if (accentColor == Color.White && ThemeStyles.isLightColor(cardBgColor)) textColor else accentColor,
+                color = resolvedAccent,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )

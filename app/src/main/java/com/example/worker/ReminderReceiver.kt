@@ -320,17 +320,30 @@ class ReminderReceiver : BroadcastReceiver() {
                         // Legacy / Global Daily Reminder
                         val isGlobalEnabled = db.habitDao().getPreferenceValue("reminders_enabled") == "true"
                         if (isGlobalEnabled) {
-                            val activeTrackers = db.trackerDao().getAllTrackersList().filter { !it.isArchived }
-                            // Exclude habits that already have their own individual reminder to prevent duplicate alerts
-                            val unremindedActive = activeTrackers.filter { !it.reminderEnabled }
-                            if (unremindedActive.isNotEmpty()) {
-                                val habitNames = unremindedActive.take(2).joinToString(", ") { "${it.icon} ${it.title}" }
-                                val msg = if (unremindedActive.size > 2) {
-                                    "$habitNames and ${unremindedActive.size - 2} more"
-                                } else {
-                                    habitNames
+                            val rolloverHour = db.habitDao().getPreferenceValue("day_rollover_hour")?.toIntOrNull() ?: 0
+                            val effectiveToday = ReminderManager.getEffectiveToday(rolloverHour, now)
+                            val vacationState = com.example.ui.VacationPauseState(
+                                globalEnabled = db.habitDao().getPreferenceValue(com.example.ui.VacationPauseHelper.KEY_VACATION_ENABLED) == "true",
+                                globalStartDate = db.habitDao().getPreferenceValue(com.example.ui.VacationPauseHelper.KEY_VACATION_START),
+                                globalEndDate = db.habitDao().getPreferenceValue(com.example.ui.VacationPauseHelper.KEY_VACATION_END)
+                            )
+                            val isGlobalVacation = com.example.ui.VacationPauseHelper.isDateInGlobalVacation(effectiveToday, vacationState)
+                            if (!isGlobalVacation) {
+                                val activeTrackers = db.trackerDao().getAllTrackersList().filter { !it.isArchived }
+                                // Exclude habits that already have their own individual reminder or are currently paused
+                                val unremindedActive = activeTrackers.filter { t ->
+                                    !t.reminderEnabled &&
+                                        !com.example.ui.VacationPauseHelper.isPausedOnEffectiveDate(effectiveToday, t.pausedUntilDate, vacationState)
                                 }
-                                showGlobalNotification(context, "Time to check in", "Don't break the chain! $msg")
+                                if (unremindedActive.isNotEmpty()) {
+                                    val habitNames = unremindedActive.take(2).joinToString(", ") { "${it.icon} ${it.title}" }
+                                    val msg = if (unremindedActive.size > 2) {
+                                        "$habitNames and ${unremindedActive.size - 2} more"
+                                    } else {
+                                        habitNames
+                                    }
+                                    showGlobalNotification(context, "Time to check in", "Don't break the chain! $msg")
+                                }
                             }
                             val timeStr = intent.getStringExtra(ReminderManager.EXTRA_TIME_STR)
                                 ?: db.habitDao().getPreferenceValue("reminder_time")

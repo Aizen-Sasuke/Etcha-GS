@@ -35,14 +35,17 @@ fun OnboardingModal(
     val customBgHex by viewModel.customBackgroundColor.collectAsState()
     val selectedFont by viewModel.selectedFont.collectAsState()
 
-    val bgColor = ThemeStyles.getBackgroundColor(selectedTheme, customBgHex)
-    val cardBgColor = ThemeStyles.getCardBackgroundColor(selectedTheme, customBgHex)
-    val borderColor = ThemeStyles.getBorderColor(selectedTheme)
-    val primaryColor = ThemeStyles.getPrimaryColor(selectedTheme, customHex)
+    val palette = remember(selectedTheme, customHex, customBgHex) {
+        ThemeStyles.resolvePalette(selectedTheme, customHex, customBgHex)
+    }
+    val cardBgColor = palette.modalSurface
+    val borderColor = palette.border
+    val primaryColor = palette.primary
+    val onPrimaryColor = palette.onPrimary
+    val accentTextColor = palette.accentOnSurface
     val appFont = ThemeStyles.getSelectedFontFamily(selectedFont)
-    val textColor = ThemeStyles.getTextColor(selectedTheme)
-    val secondaryTextColor = ThemeStyles.getSecondaryTextColor(selectedTheme)
-    val isLight = ThemeStyles.isLightTheme(selectedTheme)
+    val textColor = palette.textPrimary
+    val secondaryTextColor = palette.textSecondary
 
     var currentStep by remember { mutableIntStateOf(0) }
     val totalSteps = 4
@@ -130,7 +133,7 @@ fun OnboardingModal(
                                 textColor = textColor,
                                 secondaryTextColor = secondaryTextColor,
                                 primaryColor = primaryColor,
-                                cardBg = cardBgColor
+                                accentTextColor = accentTextColor
                             )
                             1 -> OnboardingStepView(
                                 icon = "🌱",
@@ -145,7 +148,7 @@ fun OnboardingModal(
                                 textColor = textColor,
                                 secondaryTextColor = secondaryTextColor,
                                 primaryColor = primaryColor,
-                                cardBg = cardBgColor
+                                accentTextColor = accentTextColor
                             )
                             2 -> OnboardingStepView(
                                 icon = "✍️",
@@ -160,7 +163,7 @@ fun OnboardingModal(
                                 textColor = textColor,
                                 secondaryTextColor = secondaryTextColor,
                                 primaryColor = primaryColor,
-                                cardBg = cardBgColor
+                                accentTextColor = accentTextColor
                             )
                             3 -> OnboardingStepView(
                                 icon = "🎨",
@@ -175,7 +178,7 @@ fun OnboardingModal(
                                 textColor = textColor,
                                 secondaryTextColor = secondaryTextColor,
                                 primaryColor = primaryColor,
-                                cardBg = cardBgColor
+                                accentTextColor = accentTextColor
                             )
                         }
                     }
@@ -210,7 +213,10 @@ fun OnboardingModal(
                                     onDismiss()
                                 }
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = primaryColor,
+                                contentColor = onPrimaryColor
+                            ),
                             modifier = Modifier.weight(if (currentStep > 0) 1.5f else 1f),
                             shape = RoundedCornerShape(12.dp)
                         ) {
@@ -219,7 +225,7 @@ fun OnboardingModal(
                                 fontFamily = appFont,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (primaryColor == Color.White) Color.Black else Color.White
+                                color = onPrimaryColor
                             )
                         }
                     }
@@ -239,7 +245,7 @@ private fun OnboardingStepView(
     textColor: Color,
     secondaryTextColor: Color,
     primaryColor: Color,
-    cardBg: Color
+    accentTextColor: Color
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -290,7 +296,7 @@ private fun OnboardingStepView(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.Top
                 ) {
-                    Text(text = "•", color = primaryColor, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text(text = "•", color = accentTextColor, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     Column {
                         Text(
                             text = heading,

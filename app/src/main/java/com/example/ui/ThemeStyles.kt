@@ -15,7 +15,11 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.core.content.res.ResourcesCompat
 import androidx.core.graphics.toColorInt
+import androidx.compose.ui.graphics.lerp
 import com.example.R
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.pow
 
 data class ResolvedThemeArgb(
     val isDark: Boolean,
@@ -26,12 +30,33 @@ data class ResolvedThemeArgb(
     val border: Int,
     val textPrimary: Int,
     val textSecondary: Int,
-    val pillBackground: Int
+    val pillBackground: Int,
+    val accentOnCard: Int = primary
+)
+
+@androidx.compose.runtime.Immutable
+data class ResolvedThemePalette(
+    val isDark: Boolean,
+    val isGlass: Boolean,
+    val background: Color,
+    val cardSurface: Color,
+    val modalSurface: Color,
+    val neutralWell: Color,
+    val primary: Color,
+    val onPrimary: Color,
+    val accentOnSurface: Color,
+    val border: Color,
+    val textPrimary: Color,
+    val textSecondary: Color,
+    val danger: Color,
+    val onDanger: Color,
+    val positive: Color
 )
 
 object ThemeStyles {
     const val DEFAULT_THEME_ID = "revolutionary_cream"
     const val DEFAULT_FONT_ID = "space_grotesk"
+    private val CONTRAST_DARK_INK = Color(0xFF0A0B0E)
 
     val FONT_OPTIONS: List<Pair<String, String>> = listOf(
         "space_grotesk"     to "Space Grotesk",
@@ -101,10 +126,71 @@ object ThemeStyles {
     fun isThemeDark(theme: String, customBgHex: String? = null): Boolean =
         !isLightTheme(theme, customBgHex)
 
-    fun isLightColor(color: Color): Boolean {
-        val luminance = (0.299f * color.red) + (0.587f * color.green) + (0.114f * color.blue)
-        return luminance > 0.6f
+    private fun linearizeChannel(channel: Float): Float {
+        val c = channel.coerceIn(0f, 1f)
+        return if (c <= 0.04045f) c / 12.92f else ((c + 0.055f) / 1.055f).toDouble().pow(2.4).toFloat()
     }
+
+    fun relativeLuminance(color: Color): Float {
+        val r = linearizeChannel(color.red)
+        val g = linearizeChannel(color.green)
+        val b = linearizeChannel(color.blue)
+        return (0.2126f * r) + (0.7152f * g) + (0.0722f * b)
+    }
+
+    fun contrastRatio(foreground: Color, background: Color): Float {
+        val fg = if (foreground.alpha < 1f) foreground.compositeOver(background) else foreground
+        val l1 = relativeLuminance(fg)
+        val l2 = relativeLuminance(background)
+        val lighter = max(l1, l2)
+        val darker = min(l1, l2)
+        return (lighter + 0.05f) / (darker + 0.05f)
+    }
+
+    fun isLightColor(color: Color): Boolean {
+        return contrastRatio(Color.Black, color) > contrastRatio(Color.White, color)
+    }
+
+    /**
+     * Picks pure white or high-contrast dark ink for text/icons rendered on top of [background].
+     */
+    fun contrastOn(background: Color): Color {
+        val whiteContrast = contrastRatio(Color.White, background)
+        val darkContrast = contrastRatio(CONTRAST_DARK_INK, background)
+        return if (darkContrast > whiteContrast) CONTRAST_DARK_INK else Color.White
+    }
+
+    /**
+     * Ensures an accent used for foreground text or thin icons maintains >= [minRatio] contrast
+     * against [surface] by progressively mixing toward [fallbackInk] only when needed.
+     */
+    fun accentOnSurface(
+        accent: Color,
+        surface: Color,
+        fallbackInk: Color = contrastOn(surface),
+        minRatio: Float = 4.5f
+    ): Color {
+        val opaqueSurface = if (surface.alpha < 1f) surface.copy(alpha = 1f) else surface
+        if (contrastRatio(accent, opaqueSurface) >= minRatio) {
+            return accent
+        }
+        var best = fallbackInk
+        for (step in 1..12) {
+            val fraction = step / 12f
+            val candidate = lerp(accent, fallbackInk, fraction)
+            if (contrastRatio(candidate, opaqueSurface) >= minRatio) {
+                return candidate
+            }
+            best = candidate
+        }
+        return best
+    }
+
+    fun semanticDangerColor(isLight: Boolean): Color =
+        if (isLight) Color(0xFFB91C1C) else Color(0xFFFF6B6B)
+
+    fun semanticPositiveColor(isLight: Boolean): Color =
+        if (isLight) Color(0xFF15803D) else Color(0xFF4ADE80)
 
     fun getPrimaryColor(theme: String, customHex: String = ""): Color {
         if (theme == "custom" && customHex.isNotEmpty()) {
@@ -156,6 +242,21 @@ object ThemeStyles {
         }
     }
 
+    /**
+     * Theme-derived tonal neutral container for segmented trays, input fields, and sub-cards.
+     */
+    fun getNeutralWellColor(theme: String, customBgHex: String? = null): Color {
+        val bg = getBackgroundColor(theme, customBgHex)
+        val card = getOpaqueCardColor(theme, customBgHex)
+        val border = getBorderColor(theme, customBgHex).copy(alpha = 1f)
+        val isLight = isLightTheme(theme, customBgHex)
+        return if (isLight) {
+            lerp(card, border, 0.24f)
+        } else {
+            lerp(card, bg, 0.45f)
+        }
+    }
+
     fun getBorderColor(theme: String, customBgHex: String? = null): Color {
         if (theme == "custom") {
             val bg = resolveCustomBg(customBgHex) ?: Color(0xFF111111)
@@ -186,19 +287,62 @@ object ThemeStyles {
     }
 
     fun getTextColor(theme: String, customBgHex: String? = null): Color {
-        if (theme == "custom") {
-            val bg = resolveCustomBg(customBgHex) ?: Color(0xFF111111)
-            return if (isLightColor(bg)) Color(0xFF141414) else Color.White
+        val bg = getOpaqueCardColor(theme, customBgHex)
+        val raw = if (theme == "custom") {
+            if (isLightColor(bg)) Color(0xFF141414) else Color.White
+        } else {
+            find(theme).textPrimary
         }
-        return find(theme).textPrimary
+        return if (contrastRatio(raw, bg) >= 4.5f) raw else contrastOn(bg)
     }
 
     fun getSecondaryTextColor(theme: String, customBgHex: String? = null): Color {
-        if (theme == "custom") {
-            val bg = resolveCustomBg(customBgHex) ?: Color(0xFF111111)
-            return if (isLightColor(bg)) Color(0xFF555555) else Color(0xFFA6AEBF)
+        val bg = getOpaqueCardColor(theme, customBgHex)
+        val primaryInk = getTextColor(theme, customBgHex)
+        val raw = if (theme == "custom") {
+            if (isLightColor(bg)) Color(0xFF4B5563) else Color(0xFFA6AEBF)
+        } else {
+            find(theme).textSecondary
         }
-        return find(theme).textSecondary
+        return accentOnSurface(raw, bg, fallbackInk = primaryInk, minRatio = 4.5f)
+    }
+
+    fun resolvePalette(
+        theme: String,
+        customPrimaryHex: String = "#C32021",
+        customBackgroundHex: String = "#EBE4D3"
+    ): ResolvedThemePalette {
+        val isDark = isThemeDark(theme, customBackgroundHex)
+        val isGlass = isGlassTheme(theme)
+        val bg = getBackgroundColor(theme, customBackgroundHex)
+        val cardSurface = getCardBackgroundColor(theme, customBackgroundHex)
+        val modalSurface = getOpaqueCardColor(theme, customBackgroundHex)
+        val neutralWell = getNeutralWellColor(theme, customBackgroundHex)
+        val primary = getPrimaryColor(theme, customPrimaryHex)
+        val textPrimary = getTextColor(theme, customBackgroundHex)
+        val textSecondary = getSecondaryTextColor(theme, customBackgroundHex)
+        val border = getBorderColor(theme, customBackgroundHex)
+        val onPrimary = contrastOn(primary)
+        val accentOnSurface = accentOnSurface(primary, modalSurface, fallbackInk = textPrimary)
+        val danger = semanticDangerColor(!isDark)
+        val positive = semanticPositiveColor(!isDark)
+        return ResolvedThemePalette(
+            isDark = isDark,
+            isGlass = isGlass,
+            background = bg,
+            cardSurface = cardSurface,
+            modalSurface = modalSurface,
+            neutralWell = neutralWell,
+            primary = primary,
+            onPrimary = onPrimary,
+            accentOnSurface = accentOnSurface,
+            border = border,
+            textPrimary = textPrimary,
+            textSecondary = textSecondary,
+            danger = danger,
+            onDanger = contrastOn(danger),
+            positive = positive
+        )
     }
 
     fun getGlowColor(theme: String, customHex: String = "") = getPrimaryColor(theme, customHex)
@@ -215,7 +359,8 @@ object ThemeStyles {
         val border = getBorderColor(theme, customBackgroundHex)
         val textPrimary = getTextColor(theme, customBackgroundHex)
         val textSecondary = getSecondaryTextColor(theme, customBackgroundHex)
-        val onPrimary = if (isLightColor(primary)) Color.Black else Color.White
+        val onPrimary = contrastOn(primary)
+        val accentOnCard = accentOnSurface(primary, card, fallbackInk = textPrimary)
         val isDark = isThemeDark(theme, customBackgroundHex)
         val pillBg = if (isDark) {
             card.copy(alpha = 0.95f)
@@ -231,7 +376,8 @@ object ThemeStyles {
             border = border.toArgb(),
             textPrimary = textPrimary.toArgb(),
             textSecondary = textSecondary.toArgb(),
-            pillBackground = pillBg.toArgb()
+            pillBackground = pillBg.toArgb(),
+            accentOnCard = accentOnCard.toArgb()
         )
     }
 

@@ -42,10 +42,10 @@ import com.example.ui.ThemeStyles
 import com.example.ui.TodayDashboardState
 import com.example.ui.TodayHabitItem
 import com.example.ui.TodayHabitStatus
+import com.example.ui.TrackerConfig
 import com.example.ui.components.AnimatedNumberText
 import com.example.ui.components.MotionSpecs
 import com.example.ui.components.recessedWell
-import com.example.ui.components.springPressScale
 import com.example.ui.components.surface3DCard
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -67,8 +67,8 @@ fun UnifiedTodayDashboardCard(
     val borderColor = themeConfig.borderColor
     val appFont = themeConfig.appFont
     val isLight = ThemeStyles.isLightTheme(themeConfig.selectedTheme)
-    val onPrimaryTextColor = if (primaryColor == Color.White) Color.Black else Color.White
-    val primaryAccentTextColor = if (primaryColor == Color.White) textColor else primaryColor
+    val onPrimaryTextColor = themeConfig.onPrimaryColor
+    val primaryAccentTextColor = themeConfig.accentTextColor
 
     var isCardExpanded by remember { mutableStateOf(true) }
     var showAllAttention by remember { mutableStateOf(false) }
@@ -129,7 +129,6 @@ fun UnifiedTodayDashboardCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .springPressScale(pressedScale = 0.985f)
                     .clickable { isCardExpanded = !isCardExpanded },
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
@@ -158,6 +157,14 @@ fun UnifiedTodayDashboardCard(
                             color = secondaryTextColor,
                             modifier = Modifier.align(Alignment.CenterVertically)
                         )
+                        if (dashboard.isVacationActive) {
+                            DashboardStatChip(
+                                label = "🌴 Vacation",
+                                bg = primaryColor.copy(alpha = 0.16f),
+                                fg = primaryAccentTextColor,
+                                appFont = appFont
+                            )
+                        }
                         if (dashboard.isTodayFrozen) {
                             Box(
                                 modifier = Modifier
@@ -316,7 +323,6 @@ fun UnifiedTodayDashboardCard(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .springPressScale(pressedScale = 0.97f)
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(borderColor.copy(alpha = 0.14f))
                                 .clickable { onAddTrackerClick() }
@@ -433,10 +439,10 @@ fun UnifiedTodayDashboardCard(
                             )
                         }
 
-                        // 4. Collapsible Rest Days, Weekly Goal Met & Frozen Drawer
+                        // 4. Collapsible Rest Days, Paused, Weekly Goal Met & Frozen Drawer
                         if (filteredRest.isNotEmpty()) {
                             CollapsibleDashboardGroup(
-                                title = "🛋️ Rest, Weekly Goal Met & Frozen (${filteredRest.size})",
+                                title = "🛋️ Rest, Paused & Frozen (${filteredRest.size})",
                                 expanded = showRestGroup,
                                 onToggle = { showRestGroup = !showRestGroup },
                                 items = filteredRest,
@@ -493,13 +499,12 @@ private fun TodayAttentionHabitRow(
     } else if (isLight) {
         themeConfig.borderColor.copy(alpha = 0.14f)
     } else {
-        Color(0xFF171717)
+        themeConfig.neutralWellColor
     }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .springPressScale(pressedScale = 0.975f)
             .heightIn(min = 52.dp)
             .surface3DCard(
                 shape = RoundedCornerShape(12.dp),
@@ -612,7 +617,6 @@ private fun TodayAttentionHabitRow(
                 .widthIn(min = 84.dp)
                 .heightIn(min = DesignTokens.ActionButtonHeight)
                 .defaultMinSize(minWidth = 84.dp, minHeight = DesignTokens.ActionButtonHeight)
-                .springPressScale(pressedScale = 0.91f)
                 .testTag("dashboard_action_${item.tracker.id}")
         ) {
             Text(
@@ -634,20 +638,20 @@ private fun TodayAvoidanceHabitRow(
     onOpenDetails: () -> Unit
 ) {
     val isSlip = item.status == TodayHabitStatus.BAD_SLIP
+    val dangerColor = themeConfig.dangerColor
     val rowBg = if (isSlip) {
-        Color.Red.copy(alpha = 0.08f)
+        dangerColor.copy(alpha = 0.10f)
     } else if (isSelected) {
         themeConfig.primaryColor.copy(alpha = 0.08f)
     } else if (isLight) {
         themeConfig.borderColor.copy(alpha = 0.14f)
     } else {
-        Color(0xFF171717)
+        themeConfig.neutralWellColor
     }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .springPressScale(pressedScale = 0.975f)
             .heightIn(min = 48.dp)
             .surface3DCard(
                 shape = RoundedCornerShape(12.dp),
@@ -660,7 +664,7 @@ private fun TodayAvoidanceHabitRow(
             .background(rowBg)
             .border(
                 width = 0.5.dp,
-                color = if (isSlip) Color.Red.copy(alpha = 0.35f) else themeConfig.borderColor.copy(alpha = 0.7f),
+                color = if (isSlip) dangerColor.copy(alpha = 0.45f) else themeConfig.borderColor.copy(alpha = 0.7f),
                 shape = RoundedCornerShape(12.dp)
             )
             .clickable { onOpenDetails() }
@@ -689,7 +693,7 @@ private fun TodayAvoidanceHabitRow(
                     text = item.statusLabel,
                     fontFamily = themeConfig.appFont,
                     fontSize = 11.sp,
-                    color = if (isSlip) Color(0xFFEF5350) else themeConfig.secondaryTextColor,
+                    color = if (isSlip) dangerColor else themeConfig.secondaryTextColor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -700,7 +704,7 @@ private fun TodayAvoidanceHabitRow(
             modifier = Modifier
                 .clip(RoundedCornerShape(8.dp))
                 .background(
-                    if (isSlip) Color.Red.copy(alpha = 0.14f)
+                    if (isSlip) dangerColor.copy(alpha = 0.14f)
                     else themeConfig.primaryColor.copy(alpha = 0.14f)
                 )
                 .padding(horizontal = 8.dp, vertical = 4.dp)
@@ -710,7 +714,7 @@ private fun TodayAvoidanceHabitRow(
                 fontFamily = themeConfig.appFont,
                 fontSize = 10.5.sp,
                 fontWeight = FontWeight.Bold,
-                color = if (isSlip) Color(0xFFEF5350) else (if (themeConfig.primaryColor == Color.White) themeConfig.textColor else themeConfig.primaryColor)
+                color = if (isSlip) dangerColor else themeConfig.accentTextColor
             )
         }
     }
@@ -727,7 +731,7 @@ private fun CollapsibleDashboardGroup(
     testTagName: String,
     onItemClick: (TodayHabitItem) -> Unit
 ) {
-    val isLightTray = !ThemeStyles.isLightColor(themeConfig.textColor)
+    val isLightTray = ThemeStyles.isLightTheme(themeConfig.selectedTheme)
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -744,7 +748,6 @@ private fun CollapsibleDashboardGroup(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .springPressScale(pressedScale = 0.985f)
                 .heightIn(min = 38.dp)
                 .clickable { onToggle() }
                 .padding(vertical = 4.dp)
@@ -785,7 +788,6 @@ private fun CollapsibleDashboardGroup(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .springPressScale(pressedScale = 0.975f)
                             .heightIn(min = 40.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .clickable { onItemClick(item) }
@@ -847,12 +849,14 @@ fun TodayHabitDetailSheet(
     onOpenJournal: (String) -> Unit,
     onOpenEdit: (TodayHabitItem) -> Unit,
     onViewHistory: (String) -> Unit,
-    onViewReports: (String) -> Unit
+    onViewReports: (String) -> Unit,
+    onStartFocus: (TrackerConfig) -> Unit = {}
 ) {
     if (item == null) return
     val tracker = item.tracker
-    val primaryAccent = if (themeConfig.primaryColor == Color.White) themeConfig.textColor else themeConfig.primaryColor
-    val onPrimary = if (themeConfig.primaryColor == Color.White) Color.Black else Color.White
+    val primaryAccent = themeConfig.accentTextColor
+    val onPrimary = themeConfig.onPrimaryColor
+    val dangerColor = themeConfig.dangerColor
     val isBad = tracker.type == "bad"
 
     ModalBottomSheet(
@@ -891,7 +895,7 @@ fun TodayHabitDetailSheet(
                         text = item.statusLabel,
                         fontFamily = themeConfig.appFont,
                         fontSize = 12.sp,
-                        color = if (item.status == TodayHabitStatus.BAD_SLIP) Color(0xFFEF5350) else themeConfig.secondaryTextColor
+                        color = if (item.status == TodayHabitStatus.BAD_SLIP) dangerColor else themeConfig.secondaryTextColor
                     )
                 }
             }
@@ -985,8 +989,8 @@ fun TodayHabitDetailSheet(
                         onDismiss()
                     },
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isBad) Color.Red.copy(alpha = 0.14f) else themeConfig.primaryColor,
-                        contentColor = if (isBad) Color(0xFFEF5350) else onPrimary
+                        containerColor = if (isBad) dangerColor.copy(alpha = 0.14f) else themeConfig.primaryColor,
+                        contentColor = if (isBad) dangerColor else onPrimary
                     ),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
@@ -1025,6 +1029,30 @@ fun TodayHabitDetailSheet(
                         fontFamily = themeConfig.appFont,
                         color = themeConfig.textColor,
                         fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            if (!isBad) {
+                OutlinedButton(
+                    onClick = {
+                        onStartFocus(tracker)
+                        onDismiss()
+                    },
+                    border = BorderStroke(1.dp, themeConfig.primaryColor.copy(alpha = 0.5f)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .testTag("detail_focus_button")
+                ) {
+                    Text(
+                        text = "⏱️ Start Focus Session (${tracker.defaultFocusMinutes}m)",
+                        fontFamily = themeConfig.appFont,
+                        color = primaryAccent,
+                        fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )

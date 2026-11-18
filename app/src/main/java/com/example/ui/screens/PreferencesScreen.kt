@@ -1,18 +1,26 @@
 package com.example.ui.screens
 
+import android.app.Activity
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
@@ -21,53 +29,42 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.app.Activity
-import android.content.pm.PackageManager
-import android.os.Build
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.window.Dialog
-import androidx.core.content.ContextCompat
-import androidx.core.graphics.toColorInt
-import com.example.worker.ReminderManager
 import androidx.core.app.ShareCompat
-import android.content.Intent
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
+import androidx.core.graphics.toColorInt
 import com.example.ui.HabitViewModel
 import com.example.ui.ThemeStyles
-import com.example.ui.components.MotionSpecs
-import com.example.ui.components.StaggeredReveal
+import com.example.ui.VacationPauseHelper
 import com.example.ui.components.recessedWell
-import com.example.ui.components.springPressScale
 import com.example.ui.components.surface3DCard
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.ui.draw.scale
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.ui.input.pointer.pointerInput
+import com.example.worker.AutoBackupScheduler
+import com.example.worker.HabitQuickSettingsTileService
+import com.example.worker.ReminderManager
+import java.io.File
 import java.util.Locale
 
 @Composable
 fun PreferencesScreen(
     viewModel: HabitViewModel,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isTwoPane: Boolean = false
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
-    val scrollState = rememberScrollState()
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -84,22 +81,27 @@ fun PreferencesScreen(
     val selectedFont by viewModel.selectedFont.collectAsState()
     val calendarCellShapeName by viewModel.calendarCellShape.collectAsState()
     val checkmarkStyleName by viewModel.checkmarkStyle.collectAsState()
-    
-    val isGlass = ThemeStyles.isGlassTheme(selectedTheme)
-    val bgColor = ThemeStyles.getBackgroundColor(selectedTheme, customBgHex)
-    val cardBgColor = ThemeStyles.getCardBackgroundColor(selectedTheme, customBgHex)
-    val modalBgColor = ThemeStyles.getOpaqueCardColor(selectedTheme, customBgHex)
-    val borderColor = ThemeStyles.getBorderColor(selectedTheme, customBgHex)
+    val ambientMotionEnabled by viewModel.ambientMotionEnabled.collectAsState()
+
+    val palette = remember(selectedTheme, customHex, customBgHex) {
+        ThemeStyles.resolvePalette(selectedTheme, customHex, customBgHex)
+    }
+    val isGlass = palette.isGlass
+    val bgColor = palette.background
+    val cardBgColor = palette.cardSurface
+    val modalBgColor = palette.modalSurface
+    val borderColor = palette.border
     val cardStroke = ThemeStyles.getGlassBorderStroke(selectedTheme, customBgHex)
-    val primaryColor = ThemeStyles.getPrimaryColor(selectedTheme, customHex)
+    val primaryColor = palette.primary
+    val onPrimaryColor = palette.onPrimary
+    val accentTextColor = palette.accentOnSurface
     val appFont = ThemeStyles.getSelectedFontFamily(selectedFont)
 
-    val isLight = ThemeStyles.isLightTheme(selectedTheme, customBgHex)
-    val textColor = ThemeStyles.getTextColor(selectedTheme, customBgHex)
-    val secondaryTextColor = ThemeStyles.getSecondaryTextColor(selectedTheme, customBgHex)
-    val neutralBg = borderColor.copy(alpha = if (isLight) 0.25f else 0.28f)
+    val isLight = !palette.isDark
+    val textColor = palette.textPrimary
+    val secondaryTextColor = palette.textSecondary
+    val neutralBg = palette.neutralWell
     val neutralStroke = borderColor.copy(alpha = 0.55f)
-    val innerDarkText = if (ThemeStyles.isLightColor(primaryColor)) Color.Black else Color.White
 
     val reminderTime by viewModel.reminderTime.collectAsState()
     val remindersEnabled by viewModel.remindersEnabled.collectAsState()
@@ -115,6 +117,7 @@ fun PreferencesScreen(
     var showOnboardingDialog by remember { mutableStateOf(false) }
     var showCloudBackupModal by remember { mutableStateOf(false) }
     var showArchivedHabitsSheet by remember { mutableStateOf(false) }
+    var showVacationDialog by remember { mutableStateOf(false) }
     var trackerToDeletePermanently by remember { mutableStateOf<com.example.ui.TrackerConfig?>(null) }
     val jsonBackupController = rememberJsonBackupController(
         viewModel = viewModel,
@@ -122,8 +125,34 @@ fun PreferencesScreen(
     )
     val archivedTrackers by viewModel.archivedTrackers.collectAsState()
     val activeTrackers by viewModel.trackers.collectAsState()
+    val selectedTrackerId by viewModel.selectedTrackerId.collectAsState()
     val customReminderCount = remember(activeTrackers) { activeTrackers.count { it.reminderEnabled } }
     val lastBackupTime by viewModel.lastCloudBackupTime.collectAsState()
+    val vacationState by viewModel.vacationState.collectAsState()
+    val autoBackupCadence by viewModel.autoBackupCadence.collectAsState()
+    val quickTileTrackerId by viewModel.quickTileTrackerId.collectAsState()
+    val effectiveToday = remember(dayRolloverHour) { ReminderManager.getEffectiveToday(dayRolloverHour) }
+
+    val shareCsvExport: (String?) -> Unit = { filterTrackerId ->
+        viewModel.prepareCsvExport(filterTrackerId) { csvContent, filename ->
+            try {
+                val outFile = File(context.cacheDir, filename)
+                outFile.writeText(csvContent)
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", outFile)
+                val shareIntent = ShareCompat.IntentBuilder(context)
+                    .setType("text/csv")
+                    .setStream(uri)
+                    .setSubject(filename)
+                    .setChooserTitle("Export Habit CSV")
+                    .createChooserIntent()
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                context.startActivity(shareIntent)
+            } catch (e: Exception) {
+                clipboardManager.setText(AnnotatedString(csvContent))
+                Toast.makeText(context, "CSV copied to clipboard ($filename).", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     Box(
         modifier = modifier
@@ -131,31 +160,33 @@ fun PreferencesScreen(
             .background(if (isGlass) Color.Transparent else bgColor)
             .padding(horizontal = 16.dp)
     ) {
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(scrollState)
-                .padding(bottom = 16.dp)
+                .widthIn(max = if (isTwoPane) 760.dp else 640.dp)
+                .align(Alignment.TopCenter)
+                .testTag("preferences_lazy_column"),
+            contentPadding = PaddingValues(top = 12.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Spacer(modifier = Modifier.height(12.dp))
+            item(key = "pref_header") {
+                Text(
+                    text = "Preferences",
+                    fontFamily = appFont,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 26.sp,
+                    color = textColor,
+                    modifier = Modifier.padding(vertical = 4.dp)
+                )
+            }
 
-            Text(
-                text = "Preferences",
-                fontFamily = appFont,
-                fontWeight = FontWeight.Bold,
-                fontSize = 26.sp,
-                color = textColor,
-                modifier = Modifier.padding(vertical = 8.dp)
-            )
-
-            StaggeredReveal(index = 0) {
+            item(key = "pref_appearance") {
             Card(
                 colors = CardDefaults.cardColors(containerColor = cardBgColor),
                 border = cardStroke,
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp)
                     .surface3DCard(
                         shape = RoundedCornerShape(16.dp),
                         isLight = isLight,
@@ -169,7 +200,6 @@ fun PreferencesScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .springPressScale(0.98f)
                             .clickable { showThemePicker = true }
                             .padding(horizontal = 16.dp, vertical = 16.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -189,7 +219,6 @@ fun PreferencesScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .springPressScale(0.98f)
                             .clickable { showFontPicker = true }
                             .padding(horizontal = 16.dp, vertical = 16.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -199,6 +228,44 @@ fun PreferencesScreen(
                         Spacer(modifier = Modifier.width(8.dp))
                         Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = secondaryTextColor, modifier = Modifier.size(18.dp))
                     }
+
+                    HorizontalDivider(color = neutralStroke, thickness = 0.5.dp)
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                            Text(
+                                text = "Ambient Background Motion",
+                                fontFamily = appFont,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = textColor
+                            )
+                            Text(
+                                text = "Animate live shader backdrops on glass themes (off keeps scrolling 120Hz crisp)",
+                                fontFamily = appFont,
+                                fontSize = 11.sp,
+                                color = secondaryTextColor
+                            )
+                        }
+                        Switch(
+                            checked = ambientMotionEnabled,
+                            onCheckedChange = { viewModel.setAmbientMotionEnabled(it) },
+                            modifier = Modifier.testTag("pref_ambient_motion_switch"),
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = onPrimaryColor,
+                                checkedTrackColor = primaryColor,
+                                uncheckedThumbColor = secondaryTextColor,
+                                uncheckedTrackColor = neutralBg
+                            )
+                        )
+                    }
+
                     if (selectedTheme == "custom") {
                         HorizontalDivider(color = neutralStroke, thickness = 0.5.dp)
                         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)) {
@@ -210,6 +277,7 @@ fun PreferencesScreen(
                                 textColor = textColor,
                                 secondaryTextColor = secondaryTextColor,
                                 borderColor = borderColor,
+                                isLightSurface = isLight,
                                 onColorChanged = { viewModel.setCustomPrimaryColorHex(it) }
                             )
                             Spacer(modifier = Modifier.height(24.dp))
@@ -221,6 +289,7 @@ fun PreferencesScreen(
                                 textColor = textColor,
                                 secondaryTextColor = secondaryTextColor,
                                 borderColor = borderColor,
+                                isLightSurface = isLight,
                                 onColorChanged = { viewModel.setCustomBackgroundColorHex(it) }
                             )
                         }
@@ -229,14 +298,13 @@ fun PreferencesScreen(
             }
             }
             
-            StaggeredReveal(index = 1) {
+            item(key = "pref_calendar_visuals") {
             Card(
                 colors = CardDefaults.cardColors(containerColor = cardBgColor),
                 border = cardStroke,
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp)
                     .surface3DCard(
                         shape = RoundedCornerShape(16.dp),
                         isLight = isLight,
@@ -270,17 +338,9 @@ fun PreferencesScreen(
                         shapeOptions.forEach { (sKey, sLabel) ->
                             val isSelected = calendarCellShapeName == sKey
                             val shapeObj = ThemeStyles.getCalendarCellShape(sKey)
-                            val itemScale by animateFloatAsState(
-                                targetValue = if (isSelected) 1.06f else 1f,
-                                animationSpec = MotionSpecs.BouncyPopSpring,
-                                label = "shape_scale_$sKey"
-                            )
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier
-                                    .scale(itemScale)
-                                    .springPressScale(0.92f)
-                                    .clickable { viewModel.setCalendarCellShape(sKey) }
+                                modifier = Modifier.clickable { viewModel.setCalendarCellShape(sKey) }
                             ) {
                                 Box(
                                     modifier = Modifier
@@ -300,7 +360,7 @@ fun PreferencesScreen(
                                         )
                                         .clip(shapeObj)
                                         .background(if (isSelected) primaryColor.copy(alpha = 0.14f) else cardBgColor)
-                                        .border(if (isSelected) 2.dp else 1.5.dp, primaryColor, shapeObj)
+                                        .border(if (isSelected) 2.dp else 1.5.dp, if (isSelected) primaryColor else neutralStroke, shapeObj)
                                 )
                                 Text(
                                     sLabel,
@@ -315,7 +375,7 @@ fun PreferencesScreen(
                     }
 
                     Text("Checkmark Style", color = secondaryTextColor, fontSize = 12.sp, fontFamily = appFont, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
-                    androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         val checkOptions = listOf(
                             "tick"   to "Tick",
                             "cross"  to "Cross",
@@ -329,17 +389,9 @@ fun PreferencesScreen(
                             val (cKey, cLabel) = checkOptions[index]
                             val isSelected = checkmarkStyleName == cKey
                             val cellShapeObj = ThemeStyles.getCalendarCellShape(calendarCellShapeName)
-                            val checkScale by animateFloatAsState(
-                                targetValue = if (isSelected) 1.06f else 1f,
-                                animationSpec = MotionSpecs.BouncyPopSpring,
-                                label = "check_scale_$cKey"
-                            )
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier
-                                    .scale(checkScale)
-                                    .springPressScale(0.92f)
-                                    .clickable { viewModel.setCheckmarkStyle(cKey) }
+                                modifier = Modifier.clickable { viewModel.setCheckmarkStyle(cKey) }
                             ) {
                                 Box(
                                     modifier = Modifier
@@ -382,7 +434,8 @@ fun PreferencesScreen(
                                         primaryColor = primaryColor,
                                         textColor = textColor,
                                         secondaryTextColor = secondaryTextColor,
-                                        appFont = appFont
+                                        appFont = appFont,
+                                        accentTextColor = accentTextColor
                                     )
                                 }
                                 Text(
@@ -400,14 +453,13 @@ fun PreferencesScreen(
             }
             }
 
-            StaggeredReveal(index = 2) {
+            item(key = "pref_behavior") {
             Card(
                 colors = CardDefaults.cardColors(containerColor = cardBgColor),
                 border = cardStroke,
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp)
                     .surface3DCard(
                         shape = RoundedCornerShape(16.dp),
                         isLight = isLight,
@@ -441,7 +493,7 @@ fun PreferencesScreen(
                             )
                             Text(
                                 text = if (dayRolloverHour == 0) "Midnight (12 AM)" else "$dayRolloverHour:00 AM",
-                                color = primaryColor,
+                                color = accentTextColor,
                                 fontSize = 12.sp,
                                 fontFamily = appFont,
                                 fontWeight = FontWeight.Bold
@@ -481,7 +533,7 @@ fun PreferencesScreen(
                                         fontFamily = appFont,
                                         fontSize = 11.sp,
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                        color = if (isSelected) (if (primaryColor == Color.White) Color.Black else Color.White) else secondaryTextColor,
+                                        color = if (isSelected) onPrimaryColor else secondaryTextColor,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -517,7 +569,7 @@ fun PreferencesScreen(
                             checked = celebrationsEnabled,
                             onCheckedChange = { viewModel.setCelebrationsEnabled(it) },
                             colors = SwitchDefaults.colors(
-                                checkedThumbColor = if (isLight) Color.White else Color.Black,
+                                checkedThumbColor = onPrimaryColor,
                                 checkedTrackColor = primaryColor,
                                 uncheckedThumbColor = secondaryTextColor,
                                 uncheckedTrackColor = neutralBg
@@ -528,13 +580,13 @@ fun PreferencesScreen(
             }
             }
 
+            item(key = "pref_reminders") {
             Card(
                 colors = CardDefaults.cardColors(containerColor = cardBgColor),
                 border = cardStroke,
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp)
                     .surface3DCard(
                         shape = RoundedCornerShape(16.dp),
                         isLight = isLight,
@@ -590,7 +642,7 @@ fun PreferencesScreen(
                                 }
                             },
                             colors = SwitchDefaults.colors(
-                                checkedThumbColor = if (isLight) Color.White else Color.Black,
+                                checkedThumbColor = onPrimaryColor,
                                 checkedTrackColor = primaryColor,
                                 uncheckedThumbColor = secondaryTextColor,
                                 uncheckedTrackColor = neutralBg
@@ -649,7 +701,7 @@ fun PreferencesScreen(
                             ) {
                                 Text(
                                     text = "Settings",
-                                    color = if (primaryColor == Color.White) textColor else primaryColor,
+                                    color = accentTextColor,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = appFont
@@ -659,15 +711,16 @@ fun PreferencesScreen(
                     }
                 }
             }
+            }
 
             // Local Snapshots & Backup Card
+            item(key = "pref_backup_csv") {
             Card(
                 colors = CardDefaults.cardColors(containerColor = cardBgColor),
                 border = cardStroke,
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp)
                     .surface3DCard(
                         shape = RoundedCornerShape(16.dp),
                         isLight = isLight,
@@ -760,7 +813,7 @@ fun PreferencesScreen(
 
                     Button(
                         onClick = { showCloudBackupModal = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = innerDarkText),
+                        colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = onPrimaryColor),
                         shape = DesignTokens.ControlShape,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -775,17 +828,303 @@ fun PreferencesScreen(
                             overflow = TextOverflow.Ellipsis
                         )
                     }
+
+                    HorizontalDivider(color = neutralStroke, thickness = 0.5.dp)
+
+                    Text(
+                        text = "Spreadsheet CSV Export",
+                        color = textColor,
+                        fontSize = 13.sp,
+                        fontFamily = appFont,
+                        fontWeight = FontWeight.SemiBold
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(IntrinsicSize.Max),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { shareCsvExport(null) },
+                            shape = DesignTokens.ControlShape,
+                            border = BorderStroke(0.8.dp, borderColor),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .heightIn(min = 48.dp)
+                                .testTag("pref_export_csv_all")
+                        ) {
+                            Text(
+                                "📊 CSV (All Habits)",
+                                fontFamily = appFont,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = textColor,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = { shareCsvExport(selectedTrackerId.takeIf { it.isNotBlank() }) },
+                            shape = DesignTokens.ControlShape,
+                            border = BorderStroke(0.8.dp, borderColor),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .heightIn(min = 48.dp)
+                                .testTag("pref_export_csv_active")
+                        ) {
+                            Text(
+                                "📋 CSV (Active Habit)",
+                                fontFamily = appFont,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = textColor,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = neutralStroke, thickness = 0.5.dp)
+
+                    Text(
+                        text = "Automatic Periodic Backups",
+                        color = textColor,
+                        fontSize = 13.sp,
+                        fontFamily = appFont,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(
+                            AutoBackupScheduler.CADENCE_OFF to "Off",
+                            AutoBackupScheduler.CADENCE_DAILY to "Daily",
+                            AutoBackupScheduler.CADENCE_WEEKLY to "Weekly"
+                        ).forEach { (cadenceKey, cadenceLabel) ->
+                            val isSel = autoBackupCadence == cadenceKey
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = 40.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (isSel) primaryColor.copy(alpha = 0.2f) else neutralBg)
+                                    .border(
+                                        width = if (isSel) 1.dp else 0.5.dp,
+                                        color = if (isSel) primaryColor else neutralStroke,
+                                        shape = RoundedCornerShape(10.dp)
+                                    )
+                                    .clickable {
+                                        viewModel.setAutoBackupCadence(cadenceKey)
+                                        Toast.makeText(context, "Automatic backups: $cadenceLabel", Toast.LENGTH_SHORT).show()
+                                    }
+                                    .testTag("pref_autobackup_$cadenceKey"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = cadenceLabel,
+                                    fontFamily = appFont,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSel) accentTextColor else secondaryTextColor
+                                )
+                            }
+                        }
+                    }
                 }
             }
+            }
 
-            // Archived Habits Card
+            // Vacation & Rest Mode Card
+            item(key = "pref_vacation") {
             Card(
                 colors = CardDefaults.cardColors(containerColor = cardBgColor),
                 border = cardStroke,
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp)
+                    .surface3DCard(
+                        shape = RoundedCornerShape(16.dp),
+                        isLight = isLight,
+                        primaryColor = primaryColor,
+                        isGlass = isGlass,
+                        elevationDp = 6.dp
+                    )
+                    .testTag("pref_vacation_mode_card")
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 64.dp)
+                        .clickable { showVacationDialog = true }
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(text = "🌴", fontSize = 20.sp)
+                        Column {
+                            Text(
+                                text = "Vacation & Rest Mode",
+                                color = textColor,
+                                fontSize = 15.sp,
+                                fontFamily = appFont,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Status: ${VacationPauseHelper.formatVacationSummary(vacationState, effectiveToday)} · Protects streaks & pauses alerts",
+                                color = secondaryTextColor,
+                                fontFamily = appFont,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = "Configure Vacation Mode",
+                        tint = secondaryTextColor,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+            }
+
+            // Android Quick Settings Shade Tile Card
+            item(key = "pref_quick_tile") {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = cardBgColor),
+                border = cardStroke,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .surface3DCard(
+                        shape = RoundedCornerShape(16.dp),
+                        isLight = isLight,
+                        primaryColor = primaryColor,
+                        isGlass = isGlass,
+                        elevationDp = 6.dp
+                    )
+                    .testTag("pref_quick_tile_card")
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(text = "⚡", fontSize = 20.sp)
+                        Column {
+                            Text(
+                                text = "Quick Settings Shade Tile",
+                                color = textColor,
+                                fontSize = 15.sp,
+                                fontFamily = appFont,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "1-tap habit check-in directly from your Android Quick Settings shade",
+                                color = secondaryTextColor,
+                                fontFamily = appFont,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val autoSelected = quickTileTrackerId.isNullOrBlank()
+                        Box(
+                            modifier = Modifier
+                                .heightIn(min = 36.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (autoSelected) primaryColor.copy(alpha = 0.2f) else neutralBg)
+                                .border(if (autoSelected) 1.dp else 0.5.dp, if (autoSelected) primaryColor else neutralStroke, RoundedCornerShape(10.dp))
+                                .clickable { viewModel.setQuickTileTrackerId(null) }
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Auto (Selected)",
+                                fontFamily = appFont,
+                                fontSize = 11.5.sp,
+                                fontWeight = if (autoSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (autoSelected) accentTextColor else secondaryTextColor
+                            )
+                        }
+
+                        activeTrackers.filter { it.type != "bad" }.forEach { tr ->
+                            val isSel = quickTileTrackerId == tr.id
+                            Box(
+                                modifier = Modifier
+                                    .heightIn(min = 36.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (isSel) primaryColor.copy(alpha = 0.2f) else neutralBg)
+                                    .border(if (isSel) 1.dp else 0.5.dp, if (isSel) primaryColor else neutralStroke, RoundedCornerShape(10.dp))
+                                    .clickable { viewModel.setQuickTileTrackerId(tr.id) }
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "${tr.icon} ${tr.title}",
+                                    fontFamily = appFont,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSel) accentTextColor else textColor
+                                )
+                            }
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            val chosen = activeTrackers.find { it.id == quickTileTrackerId }
+                                ?: activeTrackers.find { it.id == selectedTrackerId }
+                            val label = chosen?.let { "${it.icon} ${it.title}" } ?: "Habit Check-In"
+                            HabitQuickSettingsTileService.requestPinTile(context, label) { msg ->
+                                (context as? Activity)?.runOnUiThread {
+                                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                } ?: Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = primaryColor.copy(alpha = 0.16f),
+                            contentColor = accentTextColor
+                        ),
+                        border = BorderStroke(0.5.dp, primaryColor.copy(alpha = 0.4f)),
+                        shape = DesignTokens.ControlShape,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .testTag("pref_pin_quick_tile_button")
+                    ) {
+                        Text(
+                            text = "⚡ Add Tile to Quick Settings",
+                            fontFamily = appFont,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+            }
+
+            // Archived Habits Card
+            item(key = "pref_archived") {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = cardBgColor),
+                border = cardStroke,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
                     .surface3DCard(
                         shape = RoundedCornerShape(16.dp),
                         isLight = isLight,
@@ -832,7 +1171,7 @@ fun PreferencesScreen(
                         onClick = { showArchivedHabitsSheet = true },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = primaryColor.copy(alpha = 0.16f),
-                            contentColor = if (primaryColor == Color.White) textColor else primaryColor
+                            contentColor = accentTextColor
                         ),
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier
@@ -851,15 +1190,16 @@ fun PreferencesScreen(
                     }
                 }
             }
+            }
 
             // Supporter Edition & Bonus Vault Card
+            item(key = "pref_supporter") {
             Card(
                 colors = CardDefaults.cardColors(containerColor = cardBgColor),
                 border = BorderStroke(0.5.dp, if (isSupporter) primaryColor.copy(alpha = 0.5f) else borderColor),
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp)
                     .surface3DCard(
                         shape = RoundedCornerShape(16.dp),
                         isLight = isLight,
@@ -898,7 +1238,7 @@ fun PreferencesScreen(
                         onClick = { showDonateDialog = true },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = if (isSupporter) primaryColor.copy(alpha = 0.15f) else primaryColor,
-                            contentColor = if (isSupporter) primaryColor else (if (ThemeStyles.isLightColor(primaryColor)) Color.Black else Color.White)
+                            contentColor = if (isSupporter) accentTextColor else onPrimaryColor
                         ),
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier
@@ -914,15 +1254,16 @@ fun PreferencesScreen(
                     }
                 }
             }
+            }
 
             // Interactive Guide & Tutorial Card
+            item(key = "pref_guide_demo") {
             Card(
                 colors = CardDefaults.cardColors(containerColor = cardBgColor),
                 border = cardStroke,
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp)
                     .surface3DCard(
                         shape = RoundedCornerShape(16.dp),
                         isLight = isLight,
@@ -1010,6 +1351,7 @@ fun PreferencesScreen(
                         )
                     }
                 }
+            }
             }
         }
 
@@ -1111,7 +1453,7 @@ fun PreferencesScreen(
                                     Toast.makeText(context, "Reminder time updated to $formatted!", Toast.LENGTH_SHORT).show()
                                     showTimeDialog = false
                                 },
-                                colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = innerDarkText),
+                                colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = onPrimaryColor),
                                 shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 48.dp)
                             ) {
@@ -1197,6 +1539,22 @@ fun PreferencesScreen(
             cardBgColor = modalBgColor,
             borderColor = borderColor
         )
+
+        GlobalVacationDialog(
+            visible = showVacationDialog,
+            today = effectiveToday,
+            currentVacation = vacationState,
+            onDismiss = { showVacationDialog = false },
+            onApplyVacation = { enabled, start, end ->
+                viewModel.setGlobalVacation(enabled, start, end)
+            },
+            appFont = appFont,
+            primaryColor = primaryColor,
+            textColor = textColor,
+            secondaryTextColor = secondaryTextColor,
+            cardBgColor = modalBgColor,
+            borderColor = borderColor
+        )
     }
 }
 
@@ -1207,6 +1565,7 @@ fun CustomColorPicker(
     textColor: Color = Color.White,
     secondaryTextColor: Color = Color.Gray,
     borderColor: Color = Color.DarkGray,
+    isLightSurface: Boolean = !ThemeStyles.isLightColor(textColor),
     onColorChanged: (String) -> Unit
 ) {
     var hue by remember { mutableStateOf(260f) }
@@ -1230,7 +1589,7 @@ fun CustomColorPicker(
 
     Column(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
         var canvasWidth by remember { mutableStateOf(1f) }
-        Canvas(modifier = Modifier.fillMaxWidth().height(32.dp).recessedWell(RoundedCornerShape(8.dp), isLight = ThemeStyles.isLightColor(textColor).not()).clip(RoundedCornerShape(8.dp)).pointerInput(Unit) {
+        Canvas(modifier = Modifier.fillMaxWidth().height(32.dp).recessedWell(RoundedCornerShape(8.dp), isLight = isLightSurface).clip(RoundedCornerShape(8.dp)).pointerInput(Unit) {
             detectTapGestures { offset ->
                 val x = offset.x.coerceIn(0f, canvasWidth)
                 hue = (x / canvasWidth) * 360f

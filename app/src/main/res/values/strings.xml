@@ -22,4 +22,11 @@
     <string name="widget_row_add">+</string>
     <string name="widget_row_done">✓</string>
     <string name="widget_row_open">›</string>
+    <string name="qs_tile_label">Quick Log Habit</string>
+    <string name="qs_tile_default_subtitle">Tap to check in</string>
+    <string name="qs_tile_done_subtitle">Done today</string>
+    <string name="focus_timer_title">Focus Session</string>
+    <string name="vacation_mode_title">Vacation &amp; Pause Mode</string>
+    <string name="export_csv_label">Export CSV</string>
+    <string name="auto_backup_title">Automatic Local Backups</string>
 </resources>

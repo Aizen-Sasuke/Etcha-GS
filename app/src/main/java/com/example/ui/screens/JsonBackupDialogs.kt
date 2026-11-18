@@ -134,7 +134,10 @@ fun JsonBackupDialogsHost(
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
-    val onPrimaryColor = if (ThemeStyles.isThemeDark(selectedTheme)) Color.Black else Color.White
+    val isLightCard = ThemeStyles.isLightColor(cardBgColor.copy(alpha = 1f))
+    val onPrimaryColor = ThemeStyles.contrastOn(primaryColor)
+    val accentTextColor = ThemeStyles.accentOnSurface(primaryColor, cardBgColor, fallbackInk = textColor)
+    val dangerColor = ThemeStyles.semanticDangerColor(isLightCard)
 
     // SAF Save File launcher (Zero storage permissions)
     val saveJsonLauncher = rememberLauncherForActivityResult(
@@ -200,7 +203,7 @@ fun JsonBackupDialogsHost(
                                 fontFamily = appFont,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = if (primaryColor == Color.White) textColor else primaryColor
+                                color = accentTextColor
                             )
                         }
                         Box(
@@ -340,7 +343,7 @@ fun JsonBackupDialogsHost(
                             fontFamily = appFont,
                             fontWeight = FontWeight.Bold,
                             fontSize = 12.5.sp,
-                            color = if (primaryColor == Color.White) textColor else primaryColor
+                            color = accentTextColor
                         )
                     }
 
@@ -374,8 +377,8 @@ fun JsonBackupDialogsHost(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(DesignTokens.ChipRadius))
-                                .background(Color(0xFFEF5350).copy(alpha = 0.14f))
-                                .border(0.8.dp, Color(0xFFEF5350).copy(alpha = 0.5f), RoundedCornerShape(DesignTokens.ChipRadius))
+                                .background(dangerColor.copy(alpha = 0.14f))
+                                .border(0.8.dp, dangerColor.copy(alpha = 0.5f), RoundedCornerShape(DesignTokens.ChipRadius))
                                 .padding(10.dp)
                                 .testTag("import_json_error_banner")
                         ) {
@@ -383,7 +386,7 @@ fun JsonBackupDialogsHost(
                                 text = err,
                                 fontFamily = appFont,
                                 fontSize = 11.5.sp,
-                                color = Color(0xFFEF5350)
+                                color = dangerColor
                             )
                         }
                     }
@@ -433,7 +436,7 @@ fun JsonBackupDialogsHost(
                         fontFamily = appFont,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = if (primaryColor == Color.White) textColor else primaryColor
+                        color = accentTextColor
                     )
 
                     Row(
@@ -488,7 +491,7 @@ fun JsonBackupDialogsHost(
                                 onClick = { controller.applyImport(BackupImportMode.REPLACE) },
                                 enabled = !controller.isApplyingImport,
                                 shape = DesignTokens.ControlShape,
-                                border = BorderStroke(1.dp, Color(0xFFEF5350).copy(alpha = 0.7f)),
+                                border = BorderStroke(1.dp, dangerColor.copy(alpha = 0.7f)),
                                 modifier = Modifier
                                     .weight(1f)
                                     .heightIn(min = 44.dp)
@@ -499,7 +502,7 @@ fun JsonBackupDialogsHost(
                                     fontFamily = appFont,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 12.sp,
-                                    color = Color(0xFFEF5350)
+                                    color = dangerColor
                                 )
                             }
                         }

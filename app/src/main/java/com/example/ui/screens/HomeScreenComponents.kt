@@ -12,14 +12,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.platform.testTag
@@ -32,10 +30,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.text.font.FontFamily
@@ -51,7 +45,6 @@ import com.example.ui.TrackerConfig
 import com.example.ui.components.AnimatedNumberText
 import com.example.ui.components.MotionSpecs
 import com.example.ui.components.recessedWell
-import com.example.ui.components.springPressScale
 import com.example.ui.components.surface3DCard
 import java.time.LocalDate
 import java.time.YearMonth
@@ -62,6 +55,7 @@ import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
+@Immutable
 data class CalendarCell(
     val date: LocalDate,
     val isCurrentMonth: Boolean,
@@ -111,8 +105,19 @@ fun HomeHeaderRow(
     secondaryTextColor: Color,
     appFont: FontFamily,
     showSupporterBadge: Boolean = false,
+    cardBgColor: Color = Color.Unspecified,
     onFreezeClick: () -> Unit
 ) {
+    val surfaceColor = if (cardBgColor != Color.Unspecified) {
+        cardBgColor.copy(alpha = 1f)
+    } else if (ThemeStyles.isLightColor(textColor)) {
+        Color(0xFF16181F)
+    } else {
+        Color(0xFFF5F3EC)
+    }
+    val isLight = ThemeStyles.isLightColor(surfaceColor)
+    val accentText = ThemeStyles.accentOnSurface(primaryColor, surfaceColor, fallbackInk = textColor)
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -124,11 +129,9 @@ fun HomeHeaderRow(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.weight(1f).padding(end = 12.dp)
         ) {
-            val isLight = !ThemeStyles.isLightColor(textColor)
             Box(
                 modifier = Modifier
                     .size(44.dp)
-                    .springPressScale(0.92f)
                     .surface3DCard(
                         shape = RoundedCornerShape(14.dp),
                         isLight = isLight,
@@ -141,19 +144,10 @@ fun HomeHeaderRow(
                     .border(1.dp, primaryColor.copy(alpha = 0.35f), RoundedCornerShape(14.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                AnimatedContent(
-                    targetState = habitIcon,
-                    transitionSpec = {
-                        (scaleIn(MotionSpecs.BouncyPopSpring, initialScale = 0.72f) + fadeIn(tween(140))) togetherWith
-                            (scaleOut(tween(110), targetScale = 0.72f) + fadeOut(tween(110)))
-                    },
-                    label = "header_icon_pop"
-                ) { iconChar ->
-                    Text(
-                        text = iconChar,
-                        fontSize = 22.sp
-                    )
-                }
+                Text(
+                    text = habitIcon,
+                    fontSize = 22.sp
+                )
             }
             Spacer(modifier = Modifier.width(10.dp))
             Column(
@@ -216,31 +210,12 @@ fun HomeHeaderRow(
             if (isFrozen) "🧊 ${stats.currentStreak}d" else "🔥 ${stats.currentStreak}d"
         }
 
-        var previousStreak by remember { mutableIntStateOf(stats.currentStreak) }
-        var streakBurst by remember { mutableStateOf(false) }
-        LaunchedEffect(stats.currentStreak) {
-            if (stats.currentStreak > previousStreak) {
-                streakBurst = true
-                kotlinx.coroutines.delay(220)
-                streakBurst = false
-            }
-            previousStreak = stats.currentStreak
-        }
-        val streakPillScale by animateFloatAsState(
-            targetValue = if (streakBurst) 1.09f else 1f,
-            animationSpec = MotionSpecs.BouncyPopSpring,
-            label = "streak_pill_scale"
-        )
-
-        val isLightBadge = !ThemeStyles.isLightColor(textColor)
         Box(
             modifier = Modifier
-                .scale(streakPillScale)
-                .springPressScale(0.93f)
                 .heightIn(min = 44.dp)
                 .surface3DCard(
                     shape = RoundedCornerShape(14.dp),
-                    isLight = isLightBadge,
+                    isLight = isLight,
                     primaryColor = primaryColor,
                     isGlass = false,
                     elevationDp = 4.dp
@@ -253,23 +228,14 @@ fun HomeHeaderRow(
                 .testTag("home_freeze_badge"),
             contentAlignment = Alignment.Center
         ) {
-            AnimatedContent(
-                targetState = streakText,
-                transitionSpec = {
-                    (fadeIn(tween(160)) + scaleIn(MotionSpecs.BouncyPopSpring, initialScale = 0.88f)) togetherWith
-                        (fadeOut(tween(110)) + scaleOut(targetScale = 0.88f))
-                },
-                label = "streak_badge_text"
-            ) { label ->
-                Text(
-                    text = label,
-                    color = if (primaryColor == Color.White) textColor else primaryColor,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = appFont,
-                    maxLines = 1
-                )
-            }
+            Text(
+                text = streakText,
+                color = accentText,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = appFont,
+                maxLines = 1
+            )
         }
     }
 }
@@ -280,10 +246,8 @@ fun DemoTrackerBannerCard(
     onDismiss: () -> Unit,
     onClearDemo: () -> Unit
 ) {
-    val accentText = if (themeConfig.primaryColor == Color.White) themeConfig.textColor else themeConfig.primaryColor
-    val onAccent = if (ThemeStyles.isLightColor(themeConfig.primaryColor)) Color.Black else Color.White
-
-    val isLight = !ThemeStyles.isLightColor(themeConfig.textColor)
+    val onAccent = themeConfig.onPrimaryColor
+    val isLight = !ThemeStyles.isThemeDark(themeConfig.selectedTheme)
     val isGlass = ThemeStyles.isGlassTheme(themeConfig.selectedTheme)
     Card(
         colors = CardDefaults.cardColors(containerColor = themeConfig.cardBgColor),
@@ -357,7 +321,6 @@ fun DemoTrackerBannerCard(
                         .weight(1f)
                         .fillMaxHeight()
                         .heightIn(min = 44.dp)
-                        .springPressScale(0.95f)
                         .testTag("demo_clear_button")
                 ) {
                     Text(
@@ -383,7 +346,6 @@ fun DemoTrackerBannerCard(
                         .weight(1f)
                         .fillMaxHeight()
                         .heightIn(min = 44.dp)
-                        .springPressScale(0.95f)
                         .testTag("demo_dismiss_button")
                 ) {
                     Text(
@@ -391,7 +353,7 @@ fun DemoTrackerBannerCard(
                         fontFamily = themeConfig.appFont,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
-                        color = if (themeConfig.primaryColor == Color.White) Color.Black else onAccent,
+                        color = onAccent,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -455,6 +417,10 @@ fun HomeHabitBar(
         else currentTrackers.filter { it.timeOfDay == selectedRoutineFilter }
     }
 
+    val isLightBar = ThemeStyles.isLightColor(cardBgColor.copy(alpha = 1f))
+    val barSurface = cardBgColor.copy(alpha = 1f)
+    val accentText = ThemeStyles.accentOnSurface(primaryColor, barSurface, fallbackInk = textColor)
+
     // All items in this bar have uniform visual styling and >= 40dp accessible height
     LazyRow(
         state = lazyListState,
@@ -466,7 +432,6 @@ fun HomeHabitBar(
     ) {
         // Routine Quick Filter Pill
         item(key = "routine_filter_pill") {
-            val isLightBar = !ThemeStyles.isLightColor(textColor)
             val routineIcons = mapOf(
                 "all" to "✨ All",
                 "morning" to "🌅 Morning",
@@ -476,7 +441,6 @@ fun HomeHabitBar(
             Box(
                 modifier = Modifier
                     .heightIn(min = 40.dp)
-                    .springPressScale(0.94f)
                     .surface3DCard(
                         shape = RoundedCornerShape(14.dp),
                         isLight = isLightBar,
@@ -499,23 +463,14 @@ fun HomeHabitBar(
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
-                AnimatedContent(
-                    targetState = routineIcons[selectedRoutineFilter] ?: "✨ All",
-                    transitionSpec = {
-                        (fadeIn(tween(150)) + scaleIn(MotionSpecs.BouncyPopSpring, initialScale = 0.90f)) togetherWith
-                            fadeOut(tween(100))
-                    },
-                    label = "routine_filter_anim"
-                ) { txt ->
-                    Text(
-                        text = txt,
-                        fontFamily = appFont,
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (selectedRoutineFilter != "all") (if (primaryColor == Color.White) textColor else primaryColor) else secondaryTextColor,
-                        maxLines = 1
-                    )
-                }
+                Text(
+                    text = routineIcons[selectedRoutineFilter] ?: "✨ All",
+                    fontFamily = appFont,
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (selectedRoutineFilter != "all") accentText else secondaryTextColor,
+                    maxLines = 1
+                )
             }
         }
 
@@ -523,26 +478,14 @@ fun HomeHabitBar(
         items(displayTrackers, key = { it.id }) { tracker ->
             ReorderableItem(reorderableState, key = tracker.id) {
                 val isSelected = tracker.id == selectedTrackerId
-                val chipScale by animateFloatAsState(
-                    targetValue = if (isSelected) 1.03f else 1f,
-                    animationSpec = MotionSpecs.BouncyPopSpring,
-                    label = "tracker_chip_scale_${tracker.id}"
-                )
-                val chipBg by animateColorAsState(
-                    targetValue = if (isSelected) primaryColor.copy(alpha = 0.18f) else cardBgColor,
-                    animationSpec = tween(180),
-                    label = "tracker_chip_bg_${tracker.id}"
-                )
-                val isLightChip = !ThemeStyles.isLightColor(textColor)
+                val chipBg = if (isSelected) primaryColor.copy(alpha = 0.18f) else cardBgColor
                 Box(
                     modifier = Modifier
-                        .scale(chipScale)
-                        .springPressScale(0.95f)
                         .heightIn(min = 40.dp)
                         .longPressDraggableHandle()
                         .surface3DCard(
                             shape = RoundedCornerShape(14.dp),
-                            isLight = isLightChip,
+                            isLight = isLightBar,
                             primaryColor = primaryColor,
                             isGlass = false,
                             elevationDp = if (isSelected) 5.dp else 2.dp
@@ -568,7 +511,7 @@ fun HomeHabitBar(
                         Text(text = tracker.icon, fontSize = 14.sp)
                         Text(
                             text = tracker.title,
-                            color = if (isSelected) (if (primaryColor == Color.White) textColor else primaryColor) else secondaryTextColor,
+                            color = if (isSelected) accentText else secondaryTextColor,
                             fontSize = 12.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                             fontFamily = appFont,
@@ -578,7 +521,7 @@ fun HomeHabitBar(
                             Icon(
                                 imageVector = Icons.Default.Notifications,
                                 contentDescription = "Reminder active at ${tracker.reminderTime}",
-                                tint = if (isSelected) (if (primaryColor == Color.White) textColor else primaryColor) else secondaryTextColor,
+                                tint = if (isSelected) accentText else secondaryTextColor,
                                 modifier = Modifier.size(12.dp)
                             )
                         }
@@ -591,7 +534,6 @@ fun HomeHabitBar(
         item(key = "add_tracker_btn") {
             Box(
                 modifier = Modifier
-                    .springPressScale(0.91f)
                     .defaultMinSize(minWidth = 40.dp, minHeight = 40.dp)
                     .size(40.dp)
                     .clip(RoundedCornerShape(14.dp))
@@ -614,7 +556,6 @@ fun HomeHabitBar(
             item(key = "archived_badge") {
                 Box(
                     modifier = Modifier
-                        .springPressScale(0.94f)
                         .heightIn(min = 40.dp)
                         .clip(RoundedCornerShape(14.dp))
                         .background(borderColor.copy(alpha = 0.2f))
@@ -660,7 +601,10 @@ fun TodayStatusCard(
     selectedTheme: String,
     onMoodTagSelect: (String) -> Unit,
     onQuickCheckIn: () -> Unit,
-    onOpenJournal: () -> Unit
+    onOpenJournal: () -> Unit,
+    isPausedToday: Boolean = false,
+    pauseBadge: String? = null,
+    onStartFocus: (() -> Unit)? = null
 ) {
     val isTodayDone = if (activeTracker.targetCount > 1) todayCount >= activeTracker.targetCount else todayCount > 0
     val isWeeklyQuota = activeTracker.frequencyType == "weekly_quota"
@@ -683,27 +627,26 @@ fun TodayStatusCard(
     val isWeekQuotaCompleted = isWeeklyQuota && currentWeekCompletedDays >= weeklyTarget
     val isCardHighlight = if (isWeeklyQuota) isWeekQuotaCompleted else isTodayDone
 
-    val animatedCardContainer by animateColorAsState(
-        targetValue = if (isCardHighlight) primaryColor.copy(alpha = 0.12f) else cardBgColor,
-        animationSpec = tween(durationMillis = 240),
-        label = "today_card_container"
-    )
-    val animatedCardBorder by animateColorAsState(
-        targetValue = if (isCardHighlight) primaryColor.copy(alpha = 0.55f) else borderColor,
-        animationSpec = tween(durationMillis = 240),
-        label = "today_card_border"
-    )
-    val cardStroke = if (ThemeStyles.isGlassTheme(selectedTheme) && !isCardHighlight) {
+    val isLight = !ThemeStyles.isThemeDark(selectedTheme)
+    val isGlass = ThemeStyles.isGlassTheme(selectedTheme)
+    val opaqueSurface = ThemeStyles.getOpaqueCardColor(selectedTheme)
+    val accentText = ThemeStyles.accentOnSurface(primaryColor, opaqueSurface, fallbackInk = textColor)
+    val onPrimaryText = ThemeStyles.contrastOn(primaryColor)
+    val dangerColor = ThemeStyles.semanticDangerColor(isLight)
+    val onDangerText = ThemeStyles.contrastOn(dangerColor)
+    val wellColor = ThemeStyles.getNeutralWellColor(selectedTheme)
+
+    val cardContainer = if (isCardHighlight) primaryColor.copy(alpha = 0.12f) else cardBgColor
+    val cardBorderColor = if (isCardHighlight) primaryColor.copy(alpha = 0.55f) else borderColor
+    val cardStroke = if (isGlass && !isCardHighlight) {
         ThemeStyles.getGlassBorderStroke(selectedTheme)
     } else {
-        BorderStroke(width = if (isCardHighlight) 1.dp else 0.5.dp, color = animatedCardBorder)
+        BorderStroke(width = if (isCardHighlight) 1.dp else 0.5.dp, color = cardBorderColor)
     }
 
-    val isLight = !ThemeStyles.isLightColor(textColor)
-    val isGlass = ThemeStyles.isGlassTheme(selectedTheme)
     Card(
         colors = CardDefaults.cardColors(
-            containerColor = animatedCardContainer
+            containerColor = cardContainer
         ),
         border = cardStroke,
         shape = DesignTokens.CardShape,
@@ -743,28 +686,19 @@ fun TodayStatusCard(
                             .clip(CircleShape)
                             .background(
                                 if (isCardHighlight) {
-                                    if (isBadHabit) Color.Red.copy(alpha = 0.15f) else primaryColor.copy(alpha = 0.22f)
+                                    if (isBadHabit) dangerColor.copy(alpha = 0.16f) else primaryColor.copy(alpha = 0.22f)
                                 } else {
-                                    if (ThemeStyles.isLightTheme(selectedTheme)) borderColor.copy(alpha = 0.3f) else Color(0xFF1E1E1E)
+                                    wellColor
                                 }
                             ),
                         contentAlignment = Alignment.Center
                     ) {
-                        AnimatedContent(
-                            targetState = if (isCardHighlight) (if (isBadHabit) "✕" else "✓") else activeTracker.icon,
-                            transitionSpec = {
-                                (scaleIn(MotionSpecs.BouncyPopSpring, initialScale = 0.6f) + fadeIn(tween(150))) togetherWith
-                                    (scaleOut(tween(100), targetScale = 0.6f) + fadeOut(tween(100)))
-                            },
-                            label = "today_status_badge"
-                        ) { iconText ->
-                            Text(
-                                text = iconText,
-                                fontSize = if (isCardHighlight) 20.sp else 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isCardHighlight) (if (isBadHabit) Color(0xFFEF5350) else primaryColor) else textColor
-                            )
-                        }
+                        Text(
+                            text = if (isCardHighlight) (if (isBadHabit) "✕" else "✓") else activeTracker.icon,
+                            fontSize = if (isCardHighlight) 20.sp else 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isCardHighlight) (if (isBadHabit) dangerColor else accentText) else textColor
+                        )
                     }
 
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -788,14 +722,14 @@ fun TodayStatusCard(
                                         fontFamily = appFont,
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (isWeekQuotaCompleted) primaryColor else textColor
+                                        color = if (isWeekQuotaCompleted) accentText else textColor
                                     )
                                 }
                             } else if (todayCount > 0) {
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(6.dp))
-                                        .background(if (isBadHabit) Color.Red.copy(alpha = 0.15f) else primaryColor.copy(alpha = 0.2f))
+                                        .background(if (isBadHabit) dangerColor.copy(alpha = 0.16f) else primaryColor.copy(alpha = 0.2f))
                                         .padding(horizontal = 6.dp, vertical = 2.dp)
                                 ) {
                                     Text(
@@ -803,13 +737,15 @@ fun TodayStatusCard(
                                         fontFamily = appFont,
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (isBadHabit) Color(0xFFEF5350) else primaryColor
+                                        color = if (isBadHabit) dangerColor else accentText
                                     )
                                 }
                             }
                         }
                         Text(
-                            text = if (isWeeklyQuota) {
+                            text = if (isPausedToday) {
+                                pauseBadge ?: "Paused today — streak & strength protected"
+                            } else if (isWeeklyQuota) {
                                 if (isWeekQuotaCompleted) {
                                     "This Week: $currentWeekCompletedDays / $weeklyTarget days · Target reached! 🎉"
                                 } else {
@@ -824,53 +760,43 @@ fun TodayStatusCard(
                             },
                             fontFamily = appFont,
                             fontSize = 11.sp,
-                            color = secondaryTextColor
+                            color = if (isPausedToday) accentText else secondaryTextColor
                         )
                     }
                 }
 
-                // Quick Action Check-in Button — min height 40.dp, spring press & rebound
+                // Quick Action Check-in Button
                 Button(
                     onClick = onQuickCheckIn,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (isBadHabit) {
-                            if (todayCount > 0) Color.Red.copy(alpha = 0.15f) else Color.Red.copy(alpha = 0.85f)
+                            if (todayCount > 0) dangerColor.copy(alpha = 0.16f) else dangerColor
                         } else if (isCardHighlight) {
                             primaryColor.copy(alpha = 0.2f)
                         } else {
                             primaryColor
                         },
                         contentColor = if (isBadHabit) {
-                            if (todayCount > 0) Color.Red else Color.White
+                            if (todayCount > 0) dangerColor else onDangerText
                         } else if (isCardHighlight) {
-                            if (primaryColor == Color.White) textColor else primaryColor
+                            accentText
                         } else {
-                            if (primaryColor == Color.White) Color.Black else Color.White
+                            onPrimaryText
                         }
                     ),
                     shape = DesignTokens.ControlShape,
                     modifier = Modifier
-                        .springPressScale(0.93f)
                         .widthIn(min = 88.dp)
                         .heightIn(min = DesignTokens.ActionButtonHeight),
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
                 ) {
-                    AnimatedContent(
-                        targetState = buttonText,
-                        transitionSpec = {
-                            (fadeIn(tween(150)) + scaleIn(MotionSpecs.BouncyPopSpring, initialScale = 0.9f)) togetherWith
-                                fadeOut(tween(100))
-                        },
-                        label = "checkin_btn_label"
-                    ) { txt ->
-                        Text(
-                            text = txt,
-                            fontFamily = appFont,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1
-                        )
-                    }
+                    Text(
+                        text = buttonText,
+                        fontFamily = appFont,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
+                    )
                 }
             }
 
@@ -902,7 +828,7 @@ fun TodayStatusCard(
                             fontFamily = appFont,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = primaryColor
+                            color = accentText
                         )
                     }
                     LinearProgressIndicator(
@@ -918,7 +844,7 @@ fun TodayStatusCard(
                 }
             }
 
-            // Habit Strength Score, Journal & Mood Selector — FlowRow prevents horizontal squeeze/clipping
+            // Habit Strength Score, Journal & Mood Selector
             @OptIn(ExperimentalLayoutApi::class)
             FlowRow(
                 modifier = Modifier
@@ -931,13 +857,12 @@ fun TodayStatusCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Habit Strength Pill — dynamic height with generous padding
                     Box(
                         modifier = Modifier
                             .heightIn(min = 32.dp)
                             .recessedWell(RoundedCornerShape(10.dp), isLight = isLight)
                             .clip(RoundedCornerShape(10.dp))
-                            .background(if (isLight) borderColor.copy(alpha = 0.25f) else Color(0xFF1B1D24))
+                            .background(wellColor)
                             .padding(horizontal = 10.dp, vertical = 6.dp),
                         contentAlignment = Alignment.Center
                     ) {
@@ -952,10 +877,8 @@ fun TodayStatusCard(
                         )
                     }
 
-                    // Journal Quick Button — dynamic height with crisp padding
                     Box(
                         modifier = Modifier
-                            .springPressScale(0.94f)
                             .heightIn(min = 32.dp)
                             .clip(RoundedCornerShape(10.dp))
                             .background(primaryColor.copy(alpha = 0.12f))
@@ -974,14 +897,43 @@ fun TodayStatusCard(
                                 fontFamily = appFont,
                                 fontSize = 10.5.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (primaryColor == Color.White) textColor else primaryColor,
+                                color = accentText,
                                 maxLines = 1
                             )
                         }
                     }
+
+                    if (onStartFocus != null && activeTracker.type != "bad") {
+                        Box(
+                            modifier = Modifier
+                                .heightIn(min = 32.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(primaryColor.copy(alpha = 0.12f))
+                                .border(0.5.dp, primaryColor.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                                .clickable { onStartFocus() }
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                .testTag("today_focus_button"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(text = "⏱️", fontSize = 11.sp)
+                                Text(
+                                    text = "Focus",
+                                    fontFamily = appFont,
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = accentText,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    }
                 }
 
-                // Mood selection chips — symmetric 32.dp x 32.dp targets with spring pop
+                // Mood selection chips
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -989,23 +941,11 @@ fun TodayStatusCard(
                     val moods = listOf("😊", "⚡", "🧘", "🌧️", "🎯")
                     moods.forEach { mood ->
                         val isMoodSelected = selectedMoodTag == mood
-                        val moodScale by animateFloatAsState(
-                            targetValue = if (isMoodSelected) 1.12f else 1f,
-                            animationSpec = MotionSpecs.BouncyPopSpring,
-                            label = "mood_scale_$mood"
-                        )
-                        val moodBg by animateColorAsState(
-                            targetValue = if (isMoodSelected) primaryColor.copy(alpha = 0.25f) else Color.Transparent,
-                            animationSpec = tween(160),
-                            label = "mood_bg_$mood"
-                        )
                         Box(
                             modifier = Modifier
-                                .scale(moodScale)
-                                .springPressScale(0.88f)
                                 .size(32.dp)
                                 .clip(CircleShape)
-                                .background(moodBg)
+                                .background(if (isMoodSelected) primaryColor.copy(alpha = 0.25f) else Color.Transparent)
                                 .border(if (isMoodSelected) 1.dp else 0.dp, primaryColor, CircleShape)
                                 .clickable { onMoodTagSelect(mood) },
                             contentAlignment = Alignment.Center
@@ -1062,7 +1002,6 @@ fun HomeCalendarSection(
         ) {
             Box(
                 modifier = Modifier
-                    .springPressScale(0.95f)
                     .heightIn(min = 36.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .clickable { onMonthPickerClick() }
@@ -1074,24 +1013,15 @@ fun HomeCalendarSection(
                     horizontalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                     val monthName = currentYearMonth.month.getDisplayName(JavaTextStyle.FULL, Locale.US)
-                    AnimatedContent(
-                        targetState = "$monthName ${currentYearMonth.year}",
-                        transitionSpec = {
-                            (fadeIn(tween(170)) + slideInVertically { it / 4 }) togetherWith
-                                (fadeOut(tween(120)) + slideOutVertically { -it / 4 })
-                        },
-                        label = "month_header_title"
-                    ) { titleText ->
-                        Text(
-                            text = titleText,
-                            fontSize = 18.sp,
-                            color = textColor,
-                            fontFamily = appFont,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+                    Text(
+                        text = "$monthName ${currentYearMonth.year}",
+                        fontSize = 18.sp,
+                        color = textColor,
+                        fontFamily = appFont,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                     Icon(
                         imageVector = Icons.Default.ArrowDropDown,
                         contentDescription = "Change Month",
@@ -1107,9 +1037,7 @@ fun HomeCalendarSection(
                         pagerState.animateScrollToPage(pagerState.currentPage - 1)
                     }
                 },
-                modifier = Modifier
-                    .size(40.dp)
-                    .springPressScale(0.88f)
+                modifier = Modifier.size(40.dp)
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
@@ -1125,9 +1053,7 @@ fun HomeCalendarSection(
                         pagerState.animateScrollToPage(pagerState.currentPage + 1)
                     }
                 },
-                modifier = Modifier
-                    .size(40.dp)
-                    .springPressScale(0.88f)
+                modifier = Modifier.size(40.dp)
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
@@ -1138,9 +1064,11 @@ fun HomeCalendarSection(
             }
         }
 
-        // Right: View toggle [ Month | Week ] & Completions badge — adaptive heightIn(min = 36.dp)
-        val isLightCal = !ThemeStyles.isLightColor(textColor)
+        // Right: View toggle [ Month | Week ] & Completions badge
+        val isLightCal = !ThemeStyles.isThemeDark(selectedTheme)
         val isGlassCal = ThemeStyles.isGlassTheme(selectedTheme)
+        val calOpaqueSurface = ThemeStyles.getOpaqueCardColor(selectedTheme)
+        val calAccentText = ThemeStyles.accentOnSurface(primaryColor, calOpaqueSurface, fallbackInk = textColor)
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -1156,20 +1084,11 @@ fun HomeCalendarSection(
                     .padding(2.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val monthPillBg by animateColorAsState(
-                    targetValue = if (calendarViewMode == "month") primaryColor.copy(alpha = 0.22f) else Color.Transparent,
-                    animationSpec = tween(180),
-                    label = "cal_mode_month_bg"
-                )
-                val weekPillBg by animateColorAsState(
-                    targetValue = if (calendarViewMode == "week") primaryColor.copy(alpha = 0.22f) else Color.Transparent,
-                    animationSpec = tween(180),
-                    label = "cal_mode_week_bg"
-                )
+                val monthPillBg = if (calendarViewMode == "month") primaryColor.copy(alpha = 0.22f) else Color.Transparent
+                val weekPillBg = if (calendarViewMode == "week") primaryColor.copy(alpha = 0.22f) else Color.Transparent
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
-                        .springPressScale(0.94f)
                         .clip(RoundedCornerShape(8.dp))
                         .background(monthPillBg)
                         .clickable { calendarViewMode = "month" }
@@ -1181,14 +1100,13 @@ fun HomeCalendarSection(
                         fontFamily = appFont,
                         fontSize = 11.5.sp,
                         fontWeight = if (calendarViewMode == "month") FontWeight.Bold else FontWeight.Normal,
-                        color = if (calendarViewMode == "month") (if (primaryColor == Color.White) textColor else primaryColor) else secondaryTextColor,
+                        color = if (calendarViewMode == "month") calAccentText else secondaryTextColor,
                         maxLines = 1
                     )
                 }
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
-                        .springPressScale(0.94f)
                         .clip(RoundedCornerShape(8.dp))
                         .background(weekPillBg)
                         .clickable { calendarViewMode = "week" }
@@ -1200,7 +1118,7 @@ fun HomeCalendarSection(
                         fontFamily = appFont,
                         fontSize = 11.5.sp,
                         fontWeight = if (calendarViewMode == "week") FontWeight.Bold else FontWeight.Normal,
-                        color = if (calendarViewMode == "week") (if (primaryColor == Color.White) textColor else primaryColor) else secondaryTextColor,
+                        color = if (calendarViewMode == "week") calAccentText else secondaryTextColor,
                         maxLines = 1
                     )
                 }
@@ -1209,7 +1127,6 @@ fun HomeCalendarSection(
             // Month logs badge
             Box(
                 modifier = Modifier
-                    .springPressScale(0.94f)
                     .heightIn(min = 36.dp)
                     .surface3DCard(
                         shape = RoundedCornerShape(10.dp),
@@ -1231,7 +1148,7 @@ fun HomeCalendarSection(
                 ) {
                     AnimatedNumberText(
                         value = selectedMonthEntriesCount,
-                        color = if (primaryColor == Color.White) textColor else primaryColor,
+                        color = calAccentText,
                         fontSize = 13.sp,
                         fontFamily = appFont,
                         fontWeight = FontWeight.Bold
@@ -1375,6 +1292,12 @@ fun CalendarWeekView(
         (0..6).map { startOfWeek.plusDays(it.toLong()) }
     }
 
+    val isLightWeek = !ThemeStyles.isThemeDark(selectedTheme)
+    val isGlassWeek = ThemeStyles.isGlassTheme(selectedTheme)
+    val weekOpaqueSurface = ThemeStyles.getOpaqueCardColor(selectedTheme)
+    val weekAccentText = ThemeStyles.accentOnSurface(primaryColor, weekOpaqueSurface, fallbackInk = textColor)
+    val weekOnPrimaryText = ThemeStyles.contrastOn(primaryColor)
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1391,12 +1314,8 @@ fun CalendarWeekView(
             val isToday = date == today
             val isFuture = date.isAfter(today)
 
-            val cardContainer by animateColorAsState(
-                targetValue = if (isDone) primaryColor.copy(alpha = 0.12f) else cardBgColor,
-                animationSpec = tween(220),
-                label = "week_card_bg_${dateStr}"
-            )
-            val weekCardStroke = if (ThemeStyles.isGlassTheme(selectedTheme) && !isToday && !isDone) {
+            val cardContainer = if (isDone) primaryColor.copy(alpha = 0.12f) else cardBgColor
+            val weekCardStroke = if (isGlassWeek && !isToday && !isDone) {
                 ThemeStyles.getGlassBorderStroke(selectedTheme)
             } else {
                 BorderStroke(
@@ -1405,15 +1324,12 @@ fun CalendarWeekView(
                 )
             }
 
-            val isLightWeek = !ThemeStyles.isLightColor(textColor)
-            val isGlassWeek = ThemeStyles.isGlassTheme(selectedTheme)
             Card(
                 colors = CardDefaults.cardColors(containerColor = cardContainer),
                 border = weekCardStroke,
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .springPressScale(0.97f)
                     .surface3DCard(
                         shape = RoundedCornerShape(12.dp),
                         isLight = isLightWeek,
@@ -1435,7 +1351,6 @@ fun CalendarWeekView(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         modifier = Modifier.weight(1f)
                     ) {
-                        // Day initial / number box — 34.dp
                         Box(
                             modifier = Modifier
                                 .size(34.dp)
@@ -1457,7 +1372,7 @@ fun CalendarWeekView(
                                 fontFamily = appFont,
                                 fontWeight = if (isToday || isDone) FontWeight.Bold else FontWeight.Medium,
                                 fontSize = 13.sp,
-                                color = if (isDone || isToday) (if (primaryColor == Color.White) textColor else primaryColor) else textColor
+                                color = if (isDone || isToday) weekAccentText else textColor
                             )
                         }
 
@@ -1487,13 +1402,12 @@ fun CalendarWeekView(
                                             text = "TODAY",
                                             fontSize = 9.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = if (primaryColor == Color.White) Color.Black else Color.White
+                                            color = weekOnPrimaryText
                                         )
                                     }
                                 }
                             }
 
-                            // Subtitle: notes preview or status
                             val latestNote = entries.mapNotNull { it.notes }.lastOrNull()
                             val cleanNote = latestNote?.replace(Regex("\\[MOOD:[^\\]]+\\]"), "")?.trim()
                             val moodTag = latestNote?.let {
@@ -1539,7 +1453,6 @@ fun CalendarWeekView(
                         }
                     }
 
-                    // Right action / checkmark badge — 34.dp matching left date badge & active style
                     CalendarWeekBadge(
                         isDone = isDone,
                         isPartial = isPartial,
@@ -1552,7 +1465,8 @@ fun CalendarWeekView(
                         textColor = textColor,
                         secondaryTextColor = secondaryTextColor,
                         borderColor = borderColor,
-                        appFont = appFont
+                        appFont = appFont,
+                        accentTextColor = weekAccentText
                     )
                 }
             }
@@ -1626,28 +1540,14 @@ fun CalendarDayCell(
         }
     }
 
-    var prevSum by remember(cell.dateString) { mutableIntStateOf(totalSum) }
-    var bounceTrigger by remember(cell.dateString) { mutableStateOf(false) }
-    LaunchedEffect(totalSum) {
-        if (totalSum != prevSum) {
-            bounceTrigger = true
-            kotlinx.coroutines.delay(140)
-            bounceTrigger = false
-            prevSum = totalSum
-        }
-    }
-    val cellScale by animateFloatAsState(
-        targetValue = if (bounceTrigger) 1.09f else 1f,
-        animationSpec = MotionSpecs.BouncyPopSpring,
-        label = "cell_bounce_${cell.dateString}"
-    )
-
-    val isLightCell = !ThemeStyles.isLightColor(textColor)
+    val isLightCell = !ThemeStyles.isThemeDark(selectedTheme)
     val isGlassCell = ThemeStyles.isGlassTheme(selectedTheme)
+    val cellSurface = ThemeStyles.getOpaqueCardColor(selectedTheme)
+    val cellAccentText = ThemeStyles.accentOnSurface(primaryColor, cellSurface, fallbackInk = textColor)
+
     // Outer Day Box — lightweight 2D soft sheen on completed cells & subtle recessed well on empty cells
     Box(
         modifier = modifier
-            .scale(cellScale)
             .aspectRatio(1f)
             .then(
                 when {
@@ -1689,7 +1589,8 @@ fun CalendarDayCell(
             primaryColor = primaryColor,
             textColor = textColor,
             secondaryTextColor = secondaryTextColor,
-            appFont = appFont
+            appFont = appFont,
+            accentTextColor = cellAccentText
         )
     }
 }

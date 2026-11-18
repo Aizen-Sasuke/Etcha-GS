@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -27,9 +28,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -40,6 +43,7 @@ import com.example.ui.HabitViewModel
 import com.example.ui.ThemeStyles
 import com.example.ui.CloudBackupSnapshot
 import com.example.ui.components.LiquidAmbientBackdrop
+import com.example.worker.AutoBackupScheduler
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,18 +56,23 @@ fun CloudBackupModal(
     val customHex by viewModel.customPrimaryColor.collectAsState()
     val customBgHex by viewModel.customBackgroundColor.collectAsState()
     val selectedFont by viewModel.selectedFont.collectAsState()
+    val autoBackupCadence by viewModel.autoBackupCadence.collectAsState()
     val lastBackup by viewModel.lastCloudBackupTime.collectAsState()
     val snapshots by viewModel.cloudBackupSnapshots.collectAsState()
+    val ambientMotionEnabled by viewModel.ambientMotionEnabled.collectAsState()
 
-    val bgColor = ThemeStyles.getBackgroundColor(selectedTheme, customBgHex)
-    val cardBgColor = ThemeStyles.getCardBackgroundColor(selectedTheme, customBgHex)
-    val modalBgColor = ThemeStyles.getOpaqueCardColor(selectedTheme, customBgHex)
-    val borderColor = ThemeStyles.getBorderColor(selectedTheme, customBgHex)
-    val primaryColor = ThemeStyles.getPrimaryColor(selectedTheme, customHex)
+    val palette = remember(selectedTheme, customHex, customBgHex) {
+        ThemeStyles.resolvePalette(selectedTheme, customHex, customBgHex)
+    }
+    val cardBgColor = palette.cardSurface
+    val modalBgColor = palette.modalSurface
+    val borderColor = palette.border
+    val primaryColor = palette.primary
+    val onPrimaryColor = palette.onPrimary
+    val accentTextColor = palette.accentOnSurface
     val appFont = ThemeStyles.getSelectedFontFamily(selectedFont)
-    val textColor = ThemeStyles.getTextColor(selectedTheme, customBgHex)
-    val secondaryTextColor = ThemeStyles.getSecondaryTextColor(selectedTheme, customBgHex)
-    val isDark = ThemeStyles.isThemeDark(selectedTheme, customBgHex)
+    val textColor = palette.textPrimary
+    val secondaryTextColor = palette.textSecondary
 
     val clipboardManager = LocalClipboardManager.current
     var isBackingUp by remember { mutableStateOf(false) }
@@ -100,6 +109,7 @@ fun CloudBackupModal(
                 selectedTheme = selectedTheme,
                 customPrimaryHex = customHex,
                 customBackgroundHex = customBgHex,
+                animateMotion = ambientMotionEnabled,
                 modifier = Modifier.fillMaxSize()
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
@@ -137,7 +147,7 @@ fun CloudBackupModal(
                             },
                             modifier = Modifier.size(48.dp)
                         ) {
-                            Icon(Icons.Default.Refresh, contentDescription = "Create Snapshot", tint = primaryColor)
+                            Icon(Icons.Default.Refresh, contentDescription = "Create Snapshot", tint = accentTextColor)
                         }
                     }
 
@@ -258,15 +268,67 @@ fun CloudBackupModal(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .heightIn(min = 48.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = if (ThemeStyles.isThemeDark(selectedTheme)) Color.Black else Color.White),
+                                        colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = onPrimaryColor),
                                         shape = DesignTokens.ControlShape
                                     ) {
                                         if (isBackingUp) {
-                                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = if (ThemeStyles.isThemeDark(selectedTheme)) Color.Black else Color.White, strokeWidth = 2.dp)
+                                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = onPrimaryColor, strokeWidth = 2.dp)
                                             Spacer(modifier = Modifier.width(8.dp))
                                             Text("Saving snapshot...", fontFamily = appFont, fontSize = 13.sp)
                                         } else {
                                             Text("💾 Create Device Restore Point", fontFamily = appFont, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        }
+                                    }
+
+                                    HorizontalDivider(color = borderColor.copy(alpha = 0.5f), thickness = 0.5.dp)
+
+                                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Text(
+                                            text = "Automatic Periodic Backups",
+                                            fontFamily = appFont,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = textColor
+                                        )
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            listOf(
+                                                AutoBackupScheduler.CADENCE_OFF to "Off",
+                                                AutoBackupScheduler.CADENCE_DAILY to "Daily",
+                                                AutoBackupScheduler.CADENCE_WEEKLY to "Weekly"
+                                            ).forEach { (key, label) ->
+                                                val isSel = autoBackupCadence == key
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .heightIn(min = 38.dp)
+                                                        .clip(RoundedCornerShape(10.dp))
+                                                        .background(if (isSel) primaryColor.copy(alpha = 0.2f) else borderColor.copy(alpha = 0.14f))
+                                                        .border(
+                                                            width = if (isSel) 1.dp else 0.5.dp,
+                                                            color = if (isSel) primaryColor else borderColor,
+                                                            shape = RoundedCornerShape(10.dp)
+                                                        )
+                                                        .clickable {
+                                                            viewModel.setAutoBackupCadence(key)
+                                                            statusMessage = "Automatic backups set to $label."
+                                                        }
+                                                        .testTag("modal_autobackup_$key"),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text(
+                                                        text = label,
+                                                        fontFamily = appFont,
+                                                        fontSize = 12.sp,
+                                                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
+                                                        color = if (isSel) accentTextColor else secondaryTextColor,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -341,7 +403,7 @@ fun CloudBackupModal(
                                         Spacer(modifier = Modifier.height(8.dp))
                                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                             Box(modifier = Modifier.clip(RoundedCornerShape(DesignTokens.SmallBadgeRadius)).background(primaryColor.copy(alpha = 0.1f)).padding(horizontal = 8.dp, vertical = 3.dp)) {
-                                                Text("${snap.totalTrackers} Habits", fontFamily = appFont, fontSize = 10.sp, color = primaryColor, fontWeight = FontWeight.SemiBold)
+                                                Text("${snap.totalTrackers} Habits", fontFamily = appFont, fontSize = 10.sp, color = accentTextColor, fontWeight = FontWeight.SemiBold)
                                             }
                                             Box(modifier = Modifier.clip(RoundedCornerShape(DesignTokens.SmallBadgeRadius)).background(secondaryTextColor.copy(alpha = 0.1f)).padding(horizontal = 8.dp, vertical = 3.dp)) {
                                                 Text("${snap.totalEntries} Total Logs", fontFamily = appFont, fontSize = 10.sp, color = textColor)
@@ -421,7 +483,7 @@ fun CloudBackupModal(
                                         statusMessage = if (ok) "Successfully restored from ${s.displayDate}" else "Restore failed"
                                     }
                                 },
-                                colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = if (isDark) Color.Black else Color.White),
+                                colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = onPrimaryColor),
                                 shape = DesignTokens.ControlShape
                             ) {
                                 Text("Confirm Restore", fontFamily = appFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)

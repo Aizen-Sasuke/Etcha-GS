@@ -1,6 +1,7 @@
 package com.example.ui
 
 import android.app.Application
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.AppDatabase
@@ -9,6 +10,8 @@ import com.example.data.HabitRepository
 import com.example.data.SampleTrackerSeeder
 import com.example.data.SnapshotFileStore
 import com.example.data.Tracker
+import com.example.worker.AutoBackupScheduler
+import com.example.worker.HabitQuickSettingsTileService
 import com.example.worker.ReminderManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -24,6 +27,28 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
     private val snapshotStore = SnapshotFileStore(application)
     companion object {
         private val DATE_FORMATTER: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
+        private val CANONICAL_DAYS = listOf("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
+
+        fun normalizeFrequencyType(raw: String): String = when (raw.trim().lowercase()) {
+            "weekly" -> "custom_days"
+            "3x_week" -> "weekly_quota"
+            "weekdays" -> "weekdays"
+            "custom_days" -> "custom_days"
+            "weekly_quota" -> "weekly_quota"
+            else -> "daily"
+        }
+
+        fun normalizeTargetDays(raw: String): String {
+            val selected = raw.split(",")
+                .map { it.trim().uppercase() }
+                .filter { it in CANONICAL_DAYS }
+                .toSet()
+            return if (selected.isEmpty()) {
+                CANONICAL_DAYS.joinToString(",")
+            } else {
+                CANONICAL_DAYS.filter { it in selected }.joinToString(",")
+            }
+        }
     }
 
     // Expose flows of raw tables
@@ -44,20 +69,28 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
 
     val allTrackers: StateFlow<List<TrackerConfig>> = rawTrackersFlow.map { list ->
         list.sortedBy { it.sortOrder }.map {
+            val normalizedFreq = normalizeFrequencyType(it.frequencyType)
+            val normalizedDays = when (normalizedFreq) {
+                "weekdays" -> "MON,TUE,WED,THU,FRI"
+                "custom_days" -> normalizeTargetDays(it.targetDays)
+                else -> "MON,TUE,WED,THU,FRI,SAT,SUN"
+            }
             TrackerConfig(
                 id = it.id,
                 title = it.title,
                 icon = it.icon,
                 accentColor = it.accentColor,
                 type = it.type,
-                frequencyType = it.frequencyType,
-                targetDays = it.targetDays,
-                targetCount = it.targetCount,
+                frequencyType = normalizedFreq,
+                targetDays = normalizedDays,
+                targetCount = it.targetCount.coerceAtLeast(1),
                 timeOfDay = it.timeOfDay,
-                weeklyTarget = it.weeklyTarget,
+                weeklyTarget = if (normalizedFreq == "weekly_quota") it.weeklyTarget.coerceIn(1, 7) else 0,
                 isArchived = it.isArchived,
                 reminderEnabled = it.reminderEnabled,
-                reminderTime = it.reminderTime
+                reminderTime = it.reminderTime,
+                pausedUntilDate = it.pausedUntilDate,
+                defaultFocusMinutes = it.defaultFocusMinutes
             )
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -153,6 +186,10 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
         prefs["celebrations_enabled"] != "false"
     }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
+    val ambientMotionEnabled: StateFlow<Boolean> = rawPreferencesFlow.map { prefs ->
+        prefs["ambient_motion_enabled"] == "true"
+    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
     val hasSeenOnboarding: StateFlow<Boolean> = rawPreferencesFlow.map { prefs ->
         prefs["has_seen_onboarding"] != "false"
     }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
@@ -185,6 +222,18 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
         prefs["auto_cloud_backup_enabled"] != "false"
     }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
+    val vacationState: StateFlow<VacationPauseState> = rawPreferencesFlow.map { prefs ->
+        VacationPauseHelper.fromPreferences(prefs)
+    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), VacationPauseState())
+
+    val autoBackupCadence: StateFlow<String> = rawPreferencesFlow.map { prefs ->
+        prefs[AutoBackupScheduler.KEY_AUTO_BACKUP_CADENCE] ?: AutoBackupScheduler.CADENCE_OFF
+    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AutoBackupScheduler.CADENCE_OFF)
+
+    val quickTileTrackerId: StateFlow<String?> = rawPreferencesFlow.map { prefs ->
+        prefs[HabitQuickSettingsTileService.KEY_QUICK_TILE_TRACKER_ID]?.takeIf { it.isNotBlank() }
+    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
     val isDemoTrackerLoaded: StateFlow<Boolean> = allTrackers.map { list ->
         list.any { it.id == SampleTrackerSeeder.SAMPLE_TRACKER_ID }
     }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
@@ -198,6 +247,9 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
 
     private val _cloudBackupSnapshots = MutableStateFlow<List<CloudBackupSnapshot>>(emptyList())
     val cloudBackupSnapshots: StateFlow<List<CloudBackupSnapshot>> = _cloudBackupSnapshots.asStateFlow()
+
+    private val _focusSession = MutableStateFlow(FocusSessionState())
+    val focusSession: StateFlow<FocusSessionState> = _focusSession.asStateFlow()
 
     private val initJob = viewModelScope.launch(Dispatchers.IO) {
         if (repository.getAllTrackersList().isEmpty()) {
@@ -214,6 +266,17 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
             snapshotStore.loadAllSnapshots()
         }
         _cloudBackupSnapshots.value = loadedSnapshots
+
+        // Restore persisted active/paused Focus session timestamp if present
+        val savedFocusJson = repository.getPreference(FocusSessionState.PREF_KEY_ACTIVE_FOCUS_SESSION)
+        FocusSessionState.fromPersistedJson(savedFocusJson)?.let { restored ->
+            _focusSession.value = restored
+        }
+
+        // Sync automatic backup WorkManager cadence
+        val cadence = repository.getPreference(AutoBackupScheduler.KEY_AUTO_BACKUP_CADENCE)
+            ?: AutoBackupScheduler.CADENCE_OFF
+        AutoBackupScheduler.syncSchedule(getApplication(), cadence)
 
         // Reconcile expired streak freeze only when a freeze date is actually active
         val freezeActive = repository.getPreference("streak_freeze_date")?.takeIf { it.isNotBlank() }
@@ -456,8 +519,14 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
         list.sumOf { it.count }
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    val stats: StateFlow<HabitStats> = combine(entries, activeTracker, streakFreezeDate, streakFreezeHistory) { list, tracker, freezeActive, freezeHist ->
-        calculateStats(list, freezeActive, freezeHist, tracker)
+    val stats: StateFlow<HabitStats> = combine(
+        entries,
+        activeTracker,
+        streakFreezeDate,
+        streakFreezeHistory,
+        vacationState
+    ) { list, tracker, freezeActive, freezeHist, vac ->
+        calculateStats(list, freezeActive, freezeHist, tracker, vac)
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HabitStats())
 
     private val _reportSelectedTrackerId = MutableStateFlow<String?>(null)
@@ -476,8 +545,14 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
         repository.getEntriesForTracker(id)
     }
 
-    val reportStats: StateFlow<HabitStats> = combine(reportEntries, reportTracker, streakFreezeDate, streakFreezeHistory) { list, tracker, freezeActive, freezeHist ->
-        calculateStats(list, freezeActive, freezeHist, tracker)
+    val reportStats: StateFlow<HabitStats> = combine(
+        reportEntries,
+        reportTracker,
+        streakFreezeDate,
+        streakFreezeHistory,
+        vacationState
+    ) { list, tracker, freezeActive, freezeHist, vac ->
+        calculateStats(list, freezeActive, freezeHist, tracker, vac)
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HabitStats())
 
     val reportAnalytics: StateFlow<ReportAnalyticsSnapshot> = combine(reportEntries, reportTracker, dayRolloverHour) { entries, tracker, rollover ->
@@ -487,6 +562,20 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
             today = ReminderManager.getEffectiveToday(rollover)
         )
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ReportAnalyticsSnapshot())
+
+    val correlationInsights: StateFlow<CorrelationInsightsSnapshot> = combine(
+        rawEntries,
+        trackers,
+        vacationState,
+        dayRolloverHour
+    ) { allE, activeT, vac, rollover ->
+        HabitCorrelationEngine.build(
+            trackers = activeT,
+            allEntries = allE,
+            today = ReminderManager.getEffectiveToday(rollover),
+            vacation = vac
+        )
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), CorrelationInsightsSnapshot())
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private val recentWeekEntriesFlow: Flow<List<HabitEntry>> = rawPreferencesFlow
@@ -529,32 +618,38 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
         timeOfDay: String = "anytime",
         weeklyTarget: Int = 0,
         reminderEnabled: Boolean = false,
-        reminderTime: String = "21:00"
+        reminderTime: String = "21:00",
+        defaultFocusMinutes: Int = 25
     ) {
         viewModelScope.launch(Dispatchers.IO) {
             initJob.join()
             val all = repository.getAllTrackersList()
             val newId = "tracker_" + System.currentTimeMillis()
+            val normalizedFreq = normalizeFrequencyType(frequencyType)
+            val normalizedDays = when (normalizedFreq) {
+                "weekdays" -> "MON,TUE,WED,THU,FRI"
+                "custom_days" -> normalizeTargetDays(targetDays)
+                else -> "MON,TUE,WED,THU,FRI,SAT,SUN"
+            }
+            val finalWeeklyTarget = if (normalizedFreq == "weekly_quota") weeklyTarget.coerceIn(1, 7) else 0
             val newTracker = Tracker(
                 id = newId,
-                title = title,
-                icon = icon,
+                title = title.trim(),
+                icon = icon.trim().ifEmpty { "🎯" },
                 sortOrder = all.size,
                 accentColor = accentColor,
                 type = type,
-                frequencyType = frequencyType,
-                targetDays = targetDays,
-                targetCount = targetCount,
+                frequencyType = normalizedFreq,
+                targetDays = normalizedDays,
+                targetCount = targetCount.coerceAtLeast(1),
                 timeOfDay = timeOfDay,
-                weeklyTarget = weeklyTarget,
+                weeklyTarget = finalWeeklyTarget,
                 reminderEnabled = reminderEnabled,
-                reminderTime = reminderTime
+                reminderTime = reminderTime,
+                defaultFocusMinutes = defaultFocusMinutes.coerceIn(5, 180)
             )
             repository.insertTracker(newTracker)
             repository.setPreference("selected_tracker_id", newId)
-            if (type == "bad") {
-                repository.setPreference("checkmark_style", "cross")
-            }
             ReminderManager.syncTrackerReminder(getApplication(), newTracker)
             updateWidget()
         }
@@ -572,24 +667,33 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
         timeOfDay: String = "anytime",
         weeklyTarget: Int = 0,
         reminderEnabled: Boolean? = null,
-        reminderTime: String? = null
+        reminderTime: String? = null,
+        defaultFocusMinutes: Int? = null
     ) {
         viewModelScope.launch(Dispatchers.IO) {
             initJob.join()
             val existing = repository.getAllTrackersList().find { it.id == id }
             if (existing != null) {
+                val normalizedFreq = normalizeFrequencyType(frequencyType)
+                val normalizedDays = when (normalizedFreq) {
+                    "weekdays" -> "MON,TUE,WED,THU,FRI"
+                    "custom_days" -> normalizeTargetDays(targetDays)
+                    else -> "MON,TUE,WED,THU,FRI,SAT,SUN"
+                }
+                val finalWeeklyTarget = if (normalizedFreq == "weekly_quota") weeklyTarget.coerceIn(1, 7) else 0
                 val updated = existing.copy(
-                    title = title,
-                    icon = icon,
+                    title = title.trim().ifEmpty { existing.title },
+                    icon = icon.trim().ifEmpty { existing.icon },
                     accentColor = accentColor,
                     type = type,
-                    frequencyType = frequencyType,
-                    targetDays = targetDays,
-                    targetCount = targetCount,
+                    frequencyType = normalizedFreq,
+                    targetDays = normalizedDays,
+                    targetCount = targetCount.coerceAtLeast(1),
                     timeOfDay = timeOfDay,
-                    weeklyTarget = weeklyTarget,
+                    weeklyTarget = finalWeeklyTarget,
                     reminderEnabled = reminderEnabled ?: existing.reminderEnabled,
-                    reminderTime = reminderTime ?: existing.reminderTime
+                    reminderTime = reminderTime ?: existing.reminderTime,
+                    defaultFocusMinutes = (defaultFocusMinutes ?: existing.defaultFocusMinutes).coerceIn(5, 180)
                 )
                 repository.updateTracker(updated)
                 ReminderManager.syncTrackerReminder(getApplication(), updated)
@@ -837,6 +941,7 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
         } catch (e: Exception) {
             // Ignore widget broadcast error
         }
+        HabitQuickSettingsTileService.requestListeningRefresh(getApplication())
     }
 
     fun deleteEntry(entry: HabitEntry) {
@@ -936,6 +1041,12 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    fun setAmbientMotionEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.setPreference("ambient_motion_enabled", enabled.toString())
+        }
+    }
+
     fun applyStreakFreeze() {
         val today = getEffectiveToday().format(DATE_FORMATTER)
         viewModelScope.launch {
@@ -948,23 +1059,281 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    // Stats calculations (delegated to HabitStatsCalculator; kept private calculateStats signature for test compatibility)
+    // Stats calculations (delegated to HabitStatsCalculator; kept 4-arg overload for test reflection compatibility)
     private fun calculateStats(
         list: List<HabitEntry>,
         freezeActive: String?,
         freezeHist: String,
         tracker: TrackerConfig
+    ): HabitStats = calculateStats(
+        list = list,
+        freezeActive = freezeActive,
+        freezeHist = freezeHist,
+        tracker = tracker,
+        vacation = VacationPauseState()
+    )
+
+    private fun calculateStats(
+        list: List<HabitEntry>,
+        freezeActive: String?,
+        freezeHist: String,
+        tracker: TrackerConfig,
+        vacation: VacationPauseState
     ): HabitStats = HabitStatsCalculator.calculateStats(
         list = list,
         freezeActive = freezeActive,
         freezeHist = freezeHist,
         tracker = tracker,
-        today = getEffectiveToday()
+        today = getEffectiveToday(),
+        vacation = vacation
     )
+
+    // ── VACATION MODE & PER-HABIT PAUSE ─────────────────
+    fun setGlobalVacation(enabled: Boolean, startDate: String?, endDate: String?) {
+        viewModelScope.launch(Dispatchers.IO) {
+            initJob.join()
+            repository.setPreference(VacationPauseHelper.KEY_VACATION_ENABLED, enabled.toString())
+            repository.setPreference(VacationPauseHelper.KEY_VACATION_START, startDate.orEmpty())
+            repository.setPreference(VacationPauseHelper.KEY_VACATION_END, endDate.orEmpty())
+            updateWidget()
+        }
+    }
+
+    fun setTrackerPausedUntil(trackerId: String, pausedUntilDate: String?) {
+        viewModelScope.launch(Dispatchers.IO) {
+            initJob.join()
+            val existing = repository.getAllTrackersList().find { it.id == trackerId } ?: return@launch
+            repository.updateTracker(existing.copy(pausedUntilDate = pausedUntilDate?.takeIf { it.isNotBlank() }))
+            updateWidget()
+        }
+    }
+
+    // ── AUTOMATIC BACKUP & QUICK TILE SETTINGS ──────────
+    fun setAutoBackupCadence(cadence: String) {
+        val clean = when (cadence.lowercase()) {
+            AutoBackupScheduler.CADENCE_DAILY -> AutoBackupScheduler.CADENCE_DAILY
+            AutoBackupScheduler.CADENCE_WEEKLY -> AutoBackupScheduler.CADENCE_WEEKLY
+            else -> AutoBackupScheduler.CADENCE_OFF
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            initJob.join()
+            repository.setPreference(AutoBackupScheduler.KEY_AUTO_BACKUP_CADENCE, clean)
+            AutoBackupScheduler.syncSchedule(getApplication(), clean)
+        }
+    }
+
+    fun setQuickTileTrackerId(trackerId: String?) {
+        viewModelScope.launch(Dispatchers.IO) {
+            initJob.join()
+            repository.setPreference(HabitQuickSettingsTileService.KEY_QUICK_TILE_TRACKER_ID, trackerId.orEmpty())
+            HabitQuickSettingsTileService.requestListeningRefresh(getApplication())
+        }
+    }
+
+    // ── FOCUS & POMODORO TIMER ──────────────────────────
+    private fun persistFocusSession(state: FocusSessionState) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val serialized = if (state.isActiveOrPaused) state.toPersistedJson() else ""
+            repository.setPreference(FocusSessionState.PREF_KEY_ACTIVE_FOCUS_SESSION, serialized)
+        }
+    }
+
+    fun openFocusSheet(tracker: TrackerConfig) {
+        val current = _focusSession.value
+        val next = if (current.isActiveOrPaused && current.trackerId == tracker.id) {
+            current.copy(isSheetVisible = true)
+        } else {
+            val defaultMins = tracker.defaultFocusMinutes.coerceIn(5, 180)
+            FocusSessionState(
+                isSheetVisible = true,
+                trackerId = tracker.id,
+                trackerTitle = tracker.title,
+                trackerIcon = tracker.icon,
+                mode = FocusMode.POMODORO,
+                phase = FocusPhase.IDLE,
+                targetDurationMinutes = defaultMins,
+                breakDurationMinutes = 5,
+                completedPomodoroCycles = 0,
+                startedAtEpochMs = 0L,
+                accumulatedElapsedMs = 0L
+            )
+        }
+        _focusSession.value = next
+    }
+
+    fun dismissFocusSheet() {
+        _focusSession.value = _focusSession.value.copy(isSheetVisible = false)
+    }
+
+    fun setFocusMode(mode: FocusMode) {
+        val current = _focusSession.value
+        if (current.isRunning) return
+        val next = current.copy(
+            mode = mode,
+            phase = FocusPhase.IDLE,
+            startedAtEpochMs = 0L,
+            accumulatedElapsedMs = 0L
+        )
+        _focusSession.value = next
+        persistFocusSession(next)
+    }
+
+    fun setFocusDurationMinutes(minutes: Int) {
+        val current = _focusSession.value
+        if (current.isRunning) return
+        val clamped = minutes.coerceIn(1, 180)
+        val next = current.copy(
+            targetDurationMinutes = clamped,
+            phase = FocusPhase.IDLE,
+            startedAtEpochMs = 0L,
+            accumulatedElapsedMs = 0L
+        )
+        _focusSession.value = next
+        persistFocusSession(next)
+    }
+
+    fun startOrResumeFocus() {
+        val current = _focusSession.value
+        if (current.trackerId.isBlank() || current.isRunning) return
+        val now = System.currentTimeMillis()
+        val nextPhase = when (current.phase) {
+            FocusPhase.BREAK_PAUSED -> FocusPhase.BREAK_RUNNING
+            else -> FocusPhase.FOCUS_RUNNING
+        }
+        val next = current.copy(
+            phase = nextPhase,
+            startedAtEpochMs = now
+        )
+        _focusSession.value = next
+        persistFocusSession(next)
+    }
+
+    fun pauseFocus() {
+        val current = _focusSession.value
+        if (!current.isRunning) return
+        val elapsed = current.elapsedMillis(System.currentTimeMillis())
+        val nextPhase = if (current.phase == FocusPhase.BREAK_RUNNING) {
+            FocusPhase.BREAK_PAUSED
+        } else {
+            FocusPhase.FOCUS_PAUSED
+        }
+        val next = current.copy(
+            phase = nextPhase,
+            startedAtEpochMs = 0L,
+            accumulatedElapsedMs = elapsed
+        )
+        _focusSession.value = next
+        persistFocusSession(next)
+    }
+
+    fun resetFocus() {
+        val current = _focusSession.value
+        val next = current.copy(
+            phase = FocusPhase.IDLE,
+            startedAtEpochMs = 0L,
+            accumulatedElapsedMs = 0L
+        )
+        _focusSession.value = next
+        persistFocusSession(next)
+    }
+
+    fun completeFocusAndLog(manualElapsedMinutes: Int? = null, onLogged: ((Int) -> Unit)? = null) {
+        val current = _focusSession.value
+        if (current.trackerId.isBlank()) return
+        val nowMs = System.currentTimeMillis()
+        val elapsedMins = manualElapsedMinutes ?: if (current.isBreakPhase) {
+            current.targetDurationMinutes
+        } else {
+            val ms = current.elapsedMillis(nowMs)
+            ((ms + 30_000L) / 60_000L).toInt().coerceAtLeast(1)
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            initJob.join()
+            val tracker = repository.getAllTrackersList().find { it.id == current.trackerId }
+            if (tracker != null && !tracker.isArchived) {
+                val todayStr = getEffectiveToday().toString()
+                val existing = repository.getEntriesForTrackerAndDate(tracker.id, todayStr)
+                val sessionNote = "Focused ${elapsedMins}m"
+                if (existing.isEmpty()) {
+                    repository.insertEntry(
+                        HabitEntry(
+                            dateString = todayStr,
+                            count = 1,
+                            trackerId = tracker.id,
+                            notes = sessionNote
+                        )
+                    )
+                } else {
+                    val last = existing.last()
+                    val mergedNotes = if (last.notes.isNullOrBlank()) {
+                        sessionNote
+                    } else {
+                        "${last.notes} · $sessionNote"
+                    }
+                    repository.insertEntry(last.copy(count = last.count + 1, notes = mergedNotes))
+                }
+                updateWidget()
+            }
+            repository.setPreference(FocusSessionState.PREF_KEY_ACTIVE_FOCUS_SESSION, "")
+            withContext(Dispatchers.Main) {
+                val next = if (current.mode == FocusMode.POMODORO && !current.isBreakPhase) {
+                    current.copy(
+                        phase = FocusPhase.BREAK_RUNNING,
+                        completedPomodoroCycles = current.completedPomodoroCycles + 1,
+                        startedAtEpochMs = System.currentTimeMillis(),
+                        accumulatedElapsedMs = 0L,
+                        lastCompletedLoggedMinutes = elapsedMins
+                    )
+                } else {
+                    current.copy(
+                        phase = FocusPhase.COMPLETED,
+                        startedAtEpochMs = 0L,
+                        accumulatedElapsedMs = 0L,
+                        lastCompletedLoggedMinutes = elapsedMins
+                    )
+                }
+                _focusSession.value = next
+                if (next.isRunning) {
+                    persistFocusSession(next)
+                }
+                onLogged?.invoke(elapsedMins)
+            }
+        }
+    }
 
     // Export & Backup
     fun getEntriesForExport(): Flow<List<HabitEntry>> {
         return entries
+    }
+
+    fun prepareCsvExport(
+        filterTrackerId: String?,
+        onReady: (csvContent: String, suggestedFilename: String) -> Unit
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            initJob.join()
+            val allT = repository.getAllTrackersList()
+            val allE = rawEntries.first()
+            val csv = CsvExportCodec.encodeEntriesCsv(
+                trackers = allT,
+                entries = allE,
+                filterTrackerId = filterTrackerId
+            )
+            val slug = if (filterTrackerId.isNullOrBlank()) {
+                "all-habits"
+            } else {
+                allT.find { it.id == filterTrackerId }?.title
+                    ?.lowercase()
+                    ?.replace(Regex("[^a-z0-9]+"), "-")
+                    ?.trim('-')
+                    ?.ifBlank { "habit" } ?: "habit"
+            }
+            val filename = "etchags-$slug-${LocalDate.now()}.csv"
+            withContext(Dispatchers.Main) {
+                onReady(csv, filename)
+            }
+        }
     }
 
     suspend fun buildFullExportJson(): String {
@@ -1011,7 +1380,9 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
                     weeklyTarget = tc.weeklyTarget,
                     isArchived = tc.isArchived,
                     reminderEnabled = tc.reminderEnabled,
-                    reminderTime = tc.reminderTime
+                    reminderTime = tc.reminderTime,
+                    pausedUntilDate = tc.pausedUntilDate,
+                    defaultFocusMinutes = tc.defaultFocusMinutes
                 )
             }
             val currentP = preferences.value
@@ -1167,6 +1538,7 @@ open class HabitViewModel(application: Application) : AndroidViewModel(applicati
     }
 }
 
+@Immutable
 data class CloudBackupSnapshot(
     val id: String,
     val timestamp: Long,
@@ -1177,6 +1549,7 @@ data class CloudBackupSnapshot(
     val dataJson: String
 )
 
+@Immutable
 data class HabitStats(
     val totalCount: Int = 0,
     val thisYearCount: Int = 0,
@@ -1192,6 +1565,7 @@ data class HabitStats(
     val habitStrengthStatus: String = "Starting 🌱"
 )
 
+@Immutable
 data class StreakResult(
     val currentStreak: Int,
     val bestStreak: Int,
@@ -1199,6 +1573,7 @@ data class StreakResult(
     val bestStreakEnd: LocalDate?
 )
 
+@Immutable
 data class TrackerConfig(
     val id: String,
     val title: String,
@@ -1212,9 +1587,12 @@ data class TrackerConfig(
     val weeklyTarget: Int = 0,
     val isArchived: Boolean = false,
     val reminderEnabled: Boolean = false,
-    val reminderTime: String = "21:00"
+    val reminderTime: String = "21:00",
+    val pausedUntilDate: String? = null,
+    val defaultFocusMinutes: Int = 25
 )
 
+@Immutable
 data class QuickCheckInRecord(
     val token: Long = System.nanoTime(),
     val trackerId: String,

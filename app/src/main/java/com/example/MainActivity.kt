@@ -8,6 +8,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
+import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -22,6 +24,7 @@ import com.example.worker.ReminderManager
 
 class MainActivity : ComponentActivity() {
     private var launchedTrackerId by mutableStateOf<String?>(null)
+    private var launchSettingsTab by mutableStateOf(false)
 
     @Suppress("DEPRECATION")
     private fun enableHighRefreshRate() {
@@ -56,13 +59,15 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    @OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         com.example.ui.ThemeStyles.init(applicationContext)
-        launchedTrackerId = intent?.getStringExtra(ReminderManager.EXTRA_TRACKER_ID)
+        handleIncomingIntent(intent)
         enableEdgeToEdge()
         enableHighRefreshRate()
         setContent {
+            val windowSizeClass = calculateWindowSizeClass(this)
             val viewModel: HabitViewModel = viewModel()
             val selectedTheme by viewModel.selectedTheme.collectAsStateWithLifecycle()
             val customPrimaryColor by viewModel.customPrimaryColor.collectAsStateWithLifecycle()
@@ -84,7 +89,10 @@ class MainActivity : ComponentActivity() {
                 }
                 MainContainer(
                     viewModel = viewModel,
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize(),
+                    windowWidthSizeClass = windowSizeClass.widthSizeClass,
+                    openSettingsRequest = launchSettingsTab,
+                    onOpenSettingsConsumed = { launchSettingsTab = false }
                 )
             }
         }
@@ -93,9 +101,16 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        val extraId = intent.getStringExtra(ReminderManager.EXTRA_TRACKER_ID)
+        handleIncomingIntent(intent)
+    }
+
+    private fun handleIncomingIntent(intent: Intent?) {
+        val extraId = intent?.getStringExtra(ReminderManager.EXTRA_TRACKER_ID)
         if (!extraId.isNullOrBlank()) {
             launchedTrackerId = extraId
+        }
+        if (intent?.action == "android.service.quicksettings.action.QS_TILE_PREFERENCES") {
+            launchSettingsTab = true
         }
     }
 }

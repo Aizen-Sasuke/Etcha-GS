@@ -1,0 +1,13 @@
+HSPLcom/example/**->**(**)**
+HSPLcom/example/MainActivity;->onCreate(**)**
+HSPLcom/example/ui/HabitViewModel;->**(**)**
+HSPLcom/example/ui/ThemeStyles;->**(**)**
+HSPLcom/example/ui/TodayDashboardCalculator;->**(**)**
+HSPLcom/example/ui/HabitStatsCalculator;->**(**)**
+HSPLcom/example/data/AppDatabase**->**(**)**
+HSPLcom/example/data/HabitRepository;->**(**)**
+HSPLandroidx/compose/runtime/**->**(**)**
+HSPLandroidx/compose/foundation/**->**(**)**
+HSPLandroidx/compose/material3/**->**(**)**
+HSPLandroidx/compose/ui/graphics/**->**(**)**
+HSPLandroidx/room/**->**(**)**

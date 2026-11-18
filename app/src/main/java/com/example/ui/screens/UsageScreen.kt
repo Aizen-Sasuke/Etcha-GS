@@ -8,7 +8,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -22,35 +21,27 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.graphics.toColorInt
 import com.example.data.HabitEntry
 import com.example.ui.HabitViewModel
 import com.example.ui.ThemeStyles
-import com.example.ui.TrackerConfig
 import com.example.ui.components.AnimatedNumberText
-import com.example.ui.components.StaggeredReveal
 import com.example.ui.components.recessedWell
-import com.example.ui.components.springPressScale
 import com.example.ui.components.surface3DCard
-import java.time.Instant
 import java.time.LocalDate
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 
 @Composable
 fun UsageScreen(
     viewModel: HabitViewModel,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isTwoPane: Boolean = false
 ) {
     val entries by viewModel.entries.collectAsState(initial = emptyList())
     val allTrackers by viewModel.trackers.collectAsState()
@@ -62,17 +53,24 @@ fun UsageScreen(
     val appFont = ThemeStyles.getSelectedFontFamily(selectedFont)
     val customHex by viewModel.customPrimaryColor.collectAsState()
     val customBgHex by viewModel.customBackgroundColor.collectAsState()
-    val isGlass = ThemeStyles.isGlassTheme(selectedTheme)
-    val isDark = ThemeStyles.isThemeDark(selectedTheme, customBgHex)
-    val bgColor = ThemeStyles.getBackgroundColor(selectedTheme, customBgHex)
-    val cardBgColor = ThemeStyles.getCardBackgroundColor(selectedTheme, customBgHex)
-    val modalBgColor = ThemeStyles.getOpaqueCardColor(selectedTheme, customBgHex)
-    val borderColor = ThemeStyles.getBorderColor(selectedTheme, customBgHex)
+    val palette = remember(selectedTheme, customHex, customBgHex) {
+        ThemeStyles.resolvePalette(selectedTheme, customHex, customBgHex)
+    }
+    val isGlass = palette.isGlass
+    val isDark = palette.isDark
+    val bgColor = palette.background
+    val cardBgColor = palette.cardSurface
+    val modalBgColor = palette.modalSurface
+    val borderColor = palette.border
     val cardStroke = ThemeStyles.getGlassBorderStroke(selectedTheme, customBgHex)
-    val textColor = ThemeStyles.getTextColor(selectedTheme, customBgHex)
-    val secondaryTextColor = ThemeStyles.getSecondaryTextColor(selectedTheme, customBgHex)
-    val basePrimaryColor = ThemeStyles.getPrimaryColor(selectedTheme, customHex)
-    val primaryColor = basePrimaryColor
+    val textColor = palette.textPrimary
+    val secondaryTextColor = palette.textSecondary
+    val primaryColor = palette.primary
+    val onPrimaryColor = palette.onPrimary
+    val accentTextColor = palette.accentOnSurface
+    val dangerColor = palette.danger
+    val onDangerColor = palette.onDanger
+    val neutralWell = palette.neutralWell
 
     val rolloverHour by viewModel.dayRolloverHour.collectAsState()
     val today = remember(rolloverHour) { com.example.worker.ReminderManager.getEffectiveToday(rolloverHour) }
@@ -138,6 +136,8 @@ fun UsageScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .widthIn(max = if (isTwoPane) 1040.dp else 640.dp)
+                .align(Alignment.TopCenter)
                 .padding(bottom = 16.dp)
         ) {
             Spacer(modifier = Modifier.height(12.dp))
@@ -180,21 +180,18 @@ fun UsageScreen(
                         onClick = { showAddPastLogDialog = true },
                         modifier = Modifier
                             .size(DesignTokens.HeaderActionSize)
-                            .springPressScale(pressedScale = 0.9f)
                             .clip(CircleShape)
                             .background(cardBgColor)
                             .border(0.5.dp, borderColor, CircleShape)
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = "Add Past Log", tint = primaryColor, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.Add, contentDescription = "Add Past Log", tint = accentTextColor, modifier = Modifier.size(18.dp))
                     }
 
                     Button(
                         onClick = { showJournalModal = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = primaryColor),
+                        colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = onPrimaryColor),
                         shape = DesignTokens.ControlShape,
-                        modifier = Modifier
-                            .heightIn(min = DesignTokens.HeaderActionSize)
-                            .springPressScale(pressedScale = 0.94f),
+                        modifier = Modifier.heightIn(min = DesignTokens.HeaderActionSize),
                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
                     ) {
                         Text(
@@ -202,7 +199,7 @@ fun UsageScreen(
                             fontFamily = appFont,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (primaryColor == Color.White) Color.Black else Color.White,
+                            color = onPrimaryColor,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -221,19 +218,15 @@ fun UsageScreen(
             ) {
                 allTrackers.forEach { tracker ->
                     val isSelected = tracker.id == selectedTrackerId
-                    val tAccent = tracker.accentColor?.let {
-                        try { Color(it.toColorInt()) } catch (e: Exception) { primaryColor }
-                    } ?: primaryColor
 
                     Box(
                         modifier = Modifier
                             .heightIn(min = 36.dp)
-                            .springPressScale(pressedScale = 0.93f)
                             .clip(RoundedCornerShape(12.dp))
-                            .background(if (isSelected) tAccent.copy(alpha = 0.2f) else cardBgColor)
+                            .background(if (isSelected) primaryColor.copy(alpha = 0.2f) else cardBgColor)
                             .border(
                                 width = if (isSelected) 1.5.dp else 0.5.dp,
-                                color = if (isSelected) tAccent else borderColor,
+                                color = if (isSelected) primaryColor else borderColor,
                                 shape = RoundedCornerShape(12.dp)
                             )
                             .clickable { viewModel.selectTracker(tracker.id) }
@@ -247,7 +240,7 @@ fun UsageScreen(
                                 fontFamily = appFont,
                                 fontSize = 12.sp,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                color = if (isSelected) tAccent else textColor,
+                                color = if (isSelected) accentTextColor else textColor,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -302,7 +295,6 @@ fun UsageScreen(
                     Box(
                         modifier = Modifier
                             .heightIn(min = 34.dp)
-                            .springPressScale(pressedScale = 0.92f)
                             .clip(RoundedCornerShape(10.dp))
                             .background(if (isSelected) primaryColor.copy(alpha = 0.15f) else Color.Transparent)
                             .border(if (isSelected) 1.dp else 0.5.dp, if (isSelected) primaryColor else borderColor, RoundedCornerShape(10.dp))
@@ -315,7 +307,7 @@ fun UsageScreen(
                             fontFamily = appFont,
                             fontSize = 11.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isSelected) primaryColor else secondaryTextColor,
+                            color = if (isSelected) accentTextColor else secondaryTextColor,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -326,7 +318,6 @@ fun UsageScreen(
                 Box(
                     modifier = Modifier
                         .heightIn(min = 34.dp)
-                        .springPressScale(pressedScale = 0.92f)
                         .clip(RoundedCornerShape(10.dp))
                         .background(if (filterNotesOnly) primaryColor.copy(alpha = 0.2f) else Color.Transparent)
                         .border(if (filterNotesOnly) 1.dp else 0.5.dp, if (filterNotesOnly) primaryColor else borderColor, RoundedCornerShape(10.dp))
@@ -339,7 +330,7 @@ fun UsageScreen(
                         fontFamily = appFont,
                         fontSize = 11.sp,
                         fontWeight = if (filterNotesOnly) FontWeight.Bold else FontWeight.Normal,
-                        color = if (filterNotesOnly) primaryColor else secondaryTextColor,
+                        color = if (filterNotesOnly) accentTextColor else secondaryTextColor,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -351,7 +342,6 @@ fun UsageScreen(
                     Box(
                         modifier = Modifier
                             .defaultMinSize(minWidth = 34.dp, minHeight = 34.dp)
-                            .springPressScale(pressedScale = 0.88f)
                             .clip(RoundedCornerShape(10.dp))
                             .background(if (isMoodActive) primaryColor.copy(alpha = 0.25f) else Color.Transparent)
                             .border(if (isMoodActive) 1.dp else 0.5.dp, if (isMoodActive) primaryColor else borderColor, RoundedCornerShape(10.dp))
@@ -367,7 +357,6 @@ fun UsageScreen(
             }
 
             // Mini Summary Metric Bar (strict equal-thirds symmetry)
-            StaggeredReveal(index = 0) {
             Card(
                 colors = CardDefaults.cardColors(containerColor = cardBgColor),
                 border = cardStroke,
@@ -403,7 +392,7 @@ fun UsageScreen(
                         modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
                     ) {
                         Text("Total Check-ins", fontFamily = appFont, fontSize = 10.sp, color = secondaryTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        AnimatedNumberText(value = totalLoggedCount, fontFamily = appFont, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = primaryColor)
+                        AnimatedNumberText(value = totalLoggedCount, fontFamily = appFont, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = accentTextColor)
                     }
                     Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(borderColor.copy(alpha = 0.5f)))
                     Column(
@@ -414,7 +403,6 @@ fun UsageScreen(
                         AnimatedNumberText(value = totalNotesCount, fontFamily = appFont, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = textColor)
                     }
                 }
-            }
             }
 
             Spacer(modifier = Modifier.height(4.dp))
@@ -468,6 +456,7 @@ fun UsageScreen(
                             habitTitle = tracker.title,
                             habitIcon = tracker.icon,
                             primaryColor = primaryColor,
+                            accentTextColor = accentTextColor,
                             cardBgColor = cardBgColor,
                             borderColor = borderColor,
                             borderStroke = cardStroke,
@@ -521,14 +510,14 @@ fun UsageScreen(
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 IconButton(
                                     onClick = { if (editCount > 1) editCount-- },
-                                    modifier = Modifier.size(32.dp).clip(CircleShape).background(borderColor.copy(alpha = 0.3f))
+                                    modifier = Modifier.size(32.dp).clip(CircleShape).background(neutralWell)
                                 ) {
                                     Text("-", fontSize = 16.sp, color = textColor, fontWeight = FontWeight.Bold)
                                 }
-                                Text("$editCount", fontFamily = appFont, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = primaryColor)
+                                Text("$editCount", fontFamily = appFont, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = accentTextColor)
                                 IconButton(
                                     onClick = { editCount++ },
-                                    modifier = Modifier.size(32.dp).clip(CircleShape).background(borderColor.copy(alpha = 0.3f))
+                                    modifier = Modifier.size(32.dp).clip(CircleShape).background(neutralWell)
                                 ) {
                                     Text("+", fontSize = 16.sp, color = textColor, fontWeight = FontWeight.Bold)
                                 }
@@ -540,7 +529,7 @@ fun UsageScreen(
                             onValueChange = { editNotes = it },
                             label = { Text("Reflection / Notes", fontFamily = appFont, fontSize = 12.sp) },
                             modifier = Modifier.fillMaxWidth().height(100.dp),
-                            textStyle = androidx.compose.ui.text.TextStyle(fontFamily = appFont, fontSize = 12.sp)
+                            textStyle = androidx.compose.ui.text.TextStyle(fontFamily = appFont, fontSize = 12.sp, color = textColor)
                         )
                     }
                 },
@@ -558,7 +547,7 @@ fun UsageScreen(
                             )
                             entryToEdit = null
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = if (isDark) Color.Black else Color.White)
+                        colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = onPrimaryColor)
                     ) {
                         Text("Save Changes", fontFamily = appFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
@@ -591,7 +580,7 @@ fun UsageScreen(
                             viewModel.deleteEntry(entry)
                             entryToDelete = null
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE57373), contentColor = Color.White)
+                        colors = ButtonDefaults.buttonColors(containerColor = dangerColor, contentColor = onDangerColor)
                     ) {
                         Text("Delete", fontFamily = appFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
@@ -633,14 +622,14 @@ fun UsageScreen(
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 IconButton(
                                     onClick = { if (pastCount > 1) pastCount-- },
-                                    modifier = Modifier.size(32.dp).clip(CircleShape).background(borderColor.copy(alpha = 0.3f))
+                                    modifier = Modifier.size(32.dp).clip(CircleShape).background(neutralWell)
                                 ) {
                                     Text("-", fontSize = 16.sp, color = textColor, fontWeight = FontWeight.Bold)
                                 }
-                                Text("$pastCount", fontFamily = appFont, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = primaryColor)
+                                Text("$pastCount", fontFamily = appFont, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = accentTextColor)
                                 IconButton(
                                     onClick = { pastCount++ },
-                                    modifier = Modifier.size(32.dp).clip(CircleShape).background(borderColor.copy(alpha = 0.3f))
+                                    modifier = Modifier.size(32.dp).clip(CircleShape).background(neutralWell)
                                 ) {
                                     Text("+", fontSize = 16.sp, color = textColor, fontWeight = FontWeight.Bold)
                                 }
@@ -669,7 +658,7 @@ fun UsageScreen(
                                 showAddPastLogDialog = false
                             }
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = if (isDark) Color.Black else Color.White)
+                        colors = ButtonDefaults.buttonColors(containerColor = primaryColor, contentColor = onPrimaryColor)
                     ) {
                         Text("Add Log", fontFamily = appFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
@@ -692,6 +681,7 @@ fun EnhancedTimelineCard(
     habitIcon: String,
     primaryColor: Color,
     cardBgColor: Color,
+    accentTextColor: Color = ThemeStyles.accentOnSurface(primaryColor, cardBgColor),
     borderColor: Color,
     borderStroke: BorderStroke = BorderStroke(0.5.dp, borderColor),
     textColor: Color,
@@ -722,7 +712,10 @@ fun EnhancedTimelineCard(
         notes.replace(Regex("\\[MOOD:[^\\]]+\\]"), "").trim()
     }
 
-    val isLightCard = !ThemeStyles.isLightColor(textColor)
+    val isLightCard = ThemeStyles.isLightColor(cardBgColor.copy(alpha = 1f))
+    val safeAccentText = remember(primaryColor, cardBgColor, textColor) {
+        ThemeStyles.accentOnSurface(primaryColor, cardBgColor, fallbackInk = textColor)
+    }
     Card(
         colors = CardDefaults.cardColors(containerColor = cardBgColor),
         border = borderStroke,
@@ -789,15 +782,15 @@ fun EnhancedTimelineCard(
                             fontFamily = appFont,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = primaryColor
+                            color = safeAccentText
                         )
                     }
 
-                    IconButton(onClick = onEdit, modifier = Modifier.size(44.dp).springPressScale(pressedScale = 0.88f)) {
+                    IconButton(onClick = onEdit, modifier = Modifier.size(44.dp)) {
                         Icon(Icons.Default.Edit, contentDescription = "Edit Log", tint = secondaryTextColor, modifier = Modifier.size(18.dp))
                     }
 
-                    IconButton(onClick = onDelete, modifier = Modifier.size(44.dp).springPressScale(pressedScale = 0.88f)) {
+                    IconButton(onClick = onDelete, modifier = Modifier.size(44.dp)) {
                         Icon(Icons.Default.Delete, contentDescription = "Delete Log", tint = secondaryTextColor.copy(alpha = 0.75f), modifier = Modifier.size(18.dp))
                     }
                 }
@@ -808,7 +801,6 @@ fun EnhancedTimelineCard(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .springPressScale(pressedScale = 0.975f)
                         .clip(RoundedCornerShape(8.dp))
                         .background(primaryColor.copy(alpha = 0.06f))
                         .border(0.5.dp, primaryColor.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
@@ -819,7 +811,7 @@ fun EnhancedTimelineCard(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.Top
                     ) {
-                        Text(text = "“", fontSize = 14.sp, color = primaryColor, fontWeight = FontWeight.Bold)
+                        Text(text = "“", fontSize = 14.sp, color = safeAccentText, fontWeight = FontWeight.Bold)
                         Text(
                             text = cleanNotes,
                             fontFamily = appFont,

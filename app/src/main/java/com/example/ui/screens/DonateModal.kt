@@ -43,14 +43,19 @@ fun DonateModal(
     val badgeEnabled by viewModel.supporterBadgeEnabled.collectAsState()
     val streakFreezeDate by viewModel.streakFreezeDate.collectAsState()
 
-    val cardBgColor = ThemeStyles.getOpaqueCardColor(selectedTheme, customBgHex)
-    val borderColor = ThemeStyles.getBorderColor(selectedTheme, customBgHex)
-    val primaryColor = ThemeStyles.getPrimaryColor(selectedTheme, customHex)
+    val palette = remember(selectedTheme, customHex, customBgHex) {
+        ThemeStyles.resolvePalette(selectedTheme, customHex, customBgHex)
+    }
+    val cardBgColor = palette.modalSurface
+    val neutralWell = palette.neutralWell
+    val borderColor = palette.border
+    val primaryColor = palette.primary
+    val accentTextColor = palette.accentOnSurface
     val appFont = ThemeStyles.getSelectedFontFamily(selectedFont)
-    val textColor = ThemeStyles.getTextColor(selectedTheme, customBgHex)
-    val secondaryTextColor = ThemeStyles.getSecondaryTextColor(selectedTheme, customBgHex)
-    val isLight = ThemeStyles.isLightTheme(selectedTheme, customBgHex)
-    val onPrimaryColor = if (ThemeStyles.isLightColor(primaryColor)) Color.Black else Color.White
+    val textColor = palette.textPrimary
+    val secondaryTextColor = palette.textSecondary
+    val isLight = !palette.isDark
+    val onPrimaryColor = palette.onPrimary
     val vaultAccent = if (isLight) Color(0xFF9A5B00) else Color(0xFFFFD54F)
     val hapticFeedback = LocalHapticFeedback.current
 
@@ -192,7 +197,7 @@ fun DonateModal(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(16.dp))
-                                    .background(if (isLight) borderColor.copy(alpha = 0.14f) else Color(0xFF171717))
+                                    .background(neutralWell)
                                     .border(0.5.dp, borderColor, RoundedCornerShape(16.dp))
                                     .padding(14.dp),
                                 verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -222,7 +227,7 @@ fun DonateModal(
                                         fontFamily = appFont,
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = primaryColor
+                                        color = accentTextColor
                                     )
                                 }
 
@@ -319,7 +324,7 @@ fun DonateModal(
                                             checkedThumbColor = onPrimaryColor,
                                             checkedTrackColor = primaryColor,
                                             uncheckedThumbColor = secondaryTextColor,
-                                            uncheckedTrackColor = borderColor.copy(alpha = 0.3f)
+                                            uncheckedTrackColor = neutralWell
                                         )
                                     )
                                 }
@@ -383,7 +388,7 @@ fun DonateModal(
                                     fontFamily = appFont,
                                     fontSize = 10.5.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = primaryColor
+                                    color = accentTextColor
                                 )
                                 perks.forEach { (emoji, desc) ->
                                     Row(
@@ -415,7 +420,7 @@ fun DonateModal(
                                             .fillMaxWidth()
                                             .heightIn(min = 48.dp)
                                             .clip(RoundedCornerShape(12.dp))
-                                            .background(if (isSelected) primaryColor.copy(alpha = 0.15f) else (if (isLight) borderColor.copy(alpha = 0.14f) else Color(0xFF1B1B1B)))
+                                            .background(if (isSelected) primaryColor.copy(alpha = 0.15f) else neutralWell)
                                             .border(
                                                 width = if (isSelected) 1.5.dp else 0.5.dp,
                                                 color = if (isSelected) primaryColor else borderColor,

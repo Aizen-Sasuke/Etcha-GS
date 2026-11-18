@@ -2,15 +2,9 @@ package com.example.ui.screens
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
@@ -39,7 +33,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.testTag
@@ -59,7 +52,6 @@ import com.example.ui.components.LiquidAmbientBackdrop
 import com.example.ui.components.MotionSpecs
 import com.example.ui.components.ThemeEffectPreviewCanvas
 import com.example.ui.components.recessedWell
-import com.example.ui.components.springPressScale
 import com.example.ui.components.surface3DCard
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -78,7 +70,12 @@ fun ThemePickerModal(
     val calendarCellShapeName by viewModel.calendarCellShape.collectAsState()
     val isSupporter by viewModel.isSupporter.collectAsState()
     val favoriteThemes by viewModel.favoriteThemes.collectAsState()
-    val isCurrentLight = ThemeStyles.isLightTheme(selectedTheme, customBgHex)
+    val ambientMotionEnabled by viewModel.ambientMotionEnabled.collectAsState()
+
+    val palette = remember(selectedTheme, customHex, customBgHex) {
+        ThemeStyles.resolvePalette(selectedTheme, customHex, customBgHex)
+    }
+    val isCurrentLight = !palette.isDark
 
     var previewThemeId by remember(selectedTheme) { mutableStateOf(selectedTheme) }
     val activePreviewThemeId = previewThemeId
@@ -103,21 +100,14 @@ fun ThemePickerModal(
         }
     }
 
-    val cardBgColor by animateColorAsState(
-        targetValue = ThemeStyles.getCardBackgroundColor(selectedTheme, customBgHex),
-        animationSpec = tween(220),
-        label = "picker_card_bg"
-    )
-    val modalCardColor = ThemeStyles.getOpaqueCardColor(selectedTheme, customBgHex)
-    val borderColor = ThemeStyles.getBorderColor(selectedTheme, customBgHex)
-    val primaryColor by animateColorAsState(
-        targetValue = ThemeStyles.getPrimaryColor(selectedTheme, customHex),
-        animationSpec = tween(220),
-        label = "picker_primary"
-    )
+    val cardBgColor = palette.cardSurface
+    val modalCardColor = palette.modalSurface
+    val borderColor = palette.border
+    val primaryColor = palette.primary
+    val accentTextColor = palette.accentOnSurface
     val appFont = ThemeStyles.getSelectedFontFamily(selectedFont)
-    val textColor = ThemeStyles.getTextColor(selectedTheme, customBgHex)
-    val secondaryTextColor = ThemeStyles.getSecondaryTextColor(selectedTheme, customBgHex)
+    val textColor = palette.textPrimary
+    val secondaryTextColor = palette.textSecondary
     val activeCellShape = ThemeStyles.getCalendarCellShape(calendarCellShapeName)
 
     var searchQuery by remember { mutableStateOf("") }
@@ -156,6 +146,7 @@ fun ThemePickerModal(
                 selectedTheme = activePreviewThemeId,
                 customPrimaryHex = customHex,
                 customBackgroundHex = customBgHex,
+                animateMotion = ambientMotionEnabled,
                 modifier = Modifier.fillMaxSize()
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
@@ -170,9 +161,7 @@ fun ThemePickerModal(
                     ) {
                         IconButton(
                             onClick = { closeAndDismiss() },
-                            modifier = Modifier
-                                .size(48.dp)
-                                .springPressScale(0.90f)
+                            modifier = Modifier.size(48.dp)
                         ) {
                             Icon(
                                 Icons.AutoMirrored.Filled.ArrowBack,
@@ -202,14 +191,30 @@ fun ThemePickerModal(
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (ambientMotionEnabled) primaryColor.copy(alpha = 0.2f) else cardBgColor)
+                                .border(0.8.dp, if (ambientMotionEnabled) primaryColor else borderColor, RoundedCornerShape(10.dp))
+                                .clickable { viewModel.setAmbientMotionEnabled(!ambientMotionEnabled) }
+                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                                .testTag("theme_studio_motion_toggle"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (ambientMotionEnabled) "✨ Motion On" else "Motion Off",
+                                fontFamily = appFont,
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (ambientMotionEnabled) accentTextColor else secondaryTextColor
+                            )
+                        }
                         IconButton(
                             onClick = {
                                 closeAndDismiss()
                                 onOpenDonate()
                             },
-                            modifier = Modifier
-                                .size(48.dp)
-                                .springPressScale(0.90f)
+                            modifier = Modifier.size(48.dp)
                         ) {
                             Text("👑", fontSize = 18.sp)
                         }
@@ -229,6 +234,8 @@ fun ThemePickerModal(
                             selected = selectedCategory == "all",
                             isSpecialHighlight = false,
                             primaryColor = primaryColor,
+                            accentTextColor = accentTextColor,
+                            isLightSurface = isCurrentLight,
                             cardBgColor = cardBgColor,
                             borderColor = borderColor,
                             textColor = textColor,
@@ -242,6 +249,8 @@ fun ThemePickerModal(
                             selected = selectedCategory == "favorites",
                             isSpecialHighlight = false,
                             primaryColor = primaryColor,
+                            accentTextColor = accentTextColor,
+                            isLightSurface = isCurrentLight,
                             cardBgColor = cardBgColor,
                             borderColor = borderColor,
                             textColor = textColor,
@@ -259,6 +268,8 @@ fun ThemePickerModal(
                                 selected = isSelected,
                                 isSpecialHighlight = isVipOrElemental,
                                 primaryColor = primaryColor,
+                                accentTextColor = accentTextColor,
+                                isLightSurface = isCurrentLight,
                                 cardBgColor = cardBgColor,
                                 borderColor = borderColor,
                                 textColor = textColor,
@@ -322,6 +333,7 @@ fun ThemePickerModal(
                                 isApplied = selectedTheme == heroAppTheme.id,
                                 isLocked = heroAppTheme.isSupporterOnly && !isSupporter,
                                 isFavorite = heroAppTheme.id in favoriteThemes,
+                                animatePreview = ambientMotionEnabled,
                                 cellShape = activeCellShape,
                                 appFont = appFont,
                                 onToggleFavorite = { viewModel.toggleFavoriteTheme(heroAppTheme.id) },
@@ -434,7 +446,7 @@ fun ThemePickerModal(
                                         subtitle = "Your pinned studios & shaders for instant switching",
                                         count = favoriteThemeItems.size + if (includeCustom) 1 else 0,
                                         appFont = appFont,
-                                        primaryColor = primaryColor,
+                                        accentTextColor = accentTextColor,
                                         textColor = textColor,
                                         secondaryTextColor = secondaryTextColor,
                                         cardBgColor = cardBgColor,
@@ -489,7 +501,7 @@ fun ThemePickerModal(
                                         subtitle = category.subtitle,
                                         count = catThemes.size,
                                         appFont = appFont,
-                                        primaryColor = primaryColor,
+                                        accentTextColor = accentTextColor,
                                         textColor = textColor,
                                         secondaryTextColor = secondaryTextColor,
                                         cardBgColor = cardBgColor,
@@ -573,7 +585,7 @@ fun ThemePickerModal(
                                     text = "Bonus Supporter Theme",
                                     fontFamily = appFont,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFFFFD700),
+                                    color = if (isCurrentLight) Color(0xFF9A6700) else Color(0xFFFFD700),
                                     fontSize = 17.sp
                                 )
                             }
@@ -641,7 +653,6 @@ fun ThemePickerModal(
                                     viewModel.setSupporter(true)
                                     viewModel.setSelectedTheme(lockedTheme.id)
                                 },
-                                modifier = Modifier.springPressScale(0.95f),
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = Color(0xFFFFD700),
                                     contentColor = Color(0xFF1E1400)
@@ -656,10 +667,9 @@ fun ThemePickerModal(
                                     lockedThemeToPreview = null
                                     closeAndDismiss()
                                     onOpenDonate()
-                                },
-                                modifier = Modifier.springPressScale(0.95f)
+                                }
                             ) {
-                                Text("View Vault", fontFamily = appFont, color = primaryColor, fontSize = 12.sp)
+                                Text("View Vault", fontFamily = appFont, color = accentTextColor, fontSize = 12.sp)
                             }
                         }
                     )
@@ -679,30 +689,15 @@ private fun FavoriteHeartPillButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val heartScale by animateFloatAsState(
-        targetValue = if (isFavorite) 1.15f else 1f,
-        animationSpec = MotionSpecs.BouncyPopSpring,
-        label = "heart_pop_$testTag"
-    )
-    val heartColor by animateColorAsState(
-        targetValue = if (isFavorite) Color(0xFFFF4D6D) else (if (isDarkSurface) Color.White.copy(alpha = 0.85f) else Color(0xFF1F2430)),
-        animationSpec = tween(180),
-        label = "heart_tint_$testTag"
-    )
-    val pillBg by animateColorAsState(
-        targetValue = if (isFavorite) Color(0xFFFF4D6D).copy(alpha = 0.18f) else {
-            if (isDarkSurface) Color.Black.copy(alpha = 0.42f) else Color.White.copy(alpha = 0.82f)
-        },
-        animationSpec = tween(180),
-        label = "heart_bg_$testTag"
-    )
+    val heartColor = if (isFavorite) Color(0xFFFF4D6D) else (if (isDarkSurface) Color.White.copy(alpha = 0.85f) else Color(0xFF1F2430))
+    val pillBg = if (isFavorite) Color(0xFFFF4D6D).copy(alpha = 0.18f) else {
+        if (isDarkSurface) Color.Black.copy(alpha = 0.42f) else Color.White.copy(alpha = 0.82f)
+    }
     val pillBorder = if (isFavorite) Color(0xFFFF4D6D).copy(alpha = 0.65f) else accentColor.copy(alpha = 0.25f)
 
     Box(
         modifier = modifier
             .size(30.dp)
-            .scale(heartScale)
-            .springPressScale(0.84f, depressDp = 0.5.dp)
             .clip(CircleShape)
             .background(pillBg)
             .border(0.8.dp, pillBorder, CircleShape)
@@ -725,31 +720,22 @@ private fun ThemeHeroPreviewCard(
     isApplied: Boolean,
     isLocked: Boolean,
     isFavorite: Boolean,
+    animatePreview: Boolean,
     cellShape: Shape,
     appFont: FontFamily,
     onToggleFavorite: () -> Unit,
     onUnlockOrApply: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val animCardColor by animateColorAsState(
-        targetValue = if (heroTheme.isGlass) heroTheme.card.copy(alpha = heroTheme.glassAlpha) else heroTheme.card,
-        animationSpec = tween(220),
-        label = "hero_card_bg"
-    )
-    val animPrimary by animateColorAsState(
-        targetValue = heroTheme.primary,
-        animationSpec = tween(220),
-        label = "hero_primary"
-    )
-    val animBorder by animateColorAsState(
-        targetValue = if (heroTheme.isGlass) {
-            Color.White.copy(alpha = if (heroTheme.isDark) 0.34f else 0.85f)
-        } else {
-            heroTheme.border.copy(alpha = 0.7f)
-        },
-        animationSpec = tween(220),
-        label = "hero_border"
-    )
+    val cardColor = if (heroTheme.isGlass) heroTheme.card.copy(alpha = heroTheme.glassAlpha) else heroTheme.card
+    val heroPrimary = heroTheme.primary
+    val heroAccentText = ThemeStyles.accentOnSurface(heroPrimary, heroTheme.card, fallbackInk = heroTheme.textPrimary)
+    val heroOnPrimary = ThemeStyles.contrastOn(heroPrimary)
+    val heroBorder = if (heroTheme.isGlass) {
+        Color.White.copy(alpha = if (heroTheme.isDark) 0.34f else 0.85f)
+    } else {
+        heroTheme.border.copy(alpha = 0.7f)
+    }
 
     val heroShape = RoundedCornerShape(20.dp)
     Box(
@@ -758,17 +744,17 @@ private fun ThemeHeroPreviewCard(
             .surface3DCard(
                 shape = heroShape,
                 isLight = !heroTheme.isDark,
-                primaryColor = animPrimary,
+                primaryColor = heroPrimary,
                 isGlass = heroTheme.isGlass,
                 elevationDp = 8.dp
             )
             .clip(heroShape)
-            .border(1.2.dp, animBorder, heroShape)
+            .border(1.2.dp, heroBorder, heroShape)
             .testTag("theme_hero_preview")
     ) {
         ThemeEffectPreviewCanvas(
             theme = heroTheme,
-            animated = true,
+            animated = animatePreview,
             modifier = Modifier.matchParentSize()
         )
 
@@ -792,8 +778,8 @@ private fun ThemeHeroPreviewCard(
                         modifier = Modifier
                             .size(34.dp)
                             .clip(RoundedCornerShape(10.dp))
-                            .background(animCardColor)
-                            .border(0.8.dp, animBorder, RoundedCornerShape(10.dp)),
+                            .background(cardColor)
+                            .border(0.8.dp, heroBorder, RoundedCornerShape(10.dp)),
                         contentAlignment = Alignment.Center
                     ) {
                         Text("🧘", fontSize = 16.sp)
@@ -844,7 +830,7 @@ private fun ThemeHeroPreviewCard(
                     FavoriteHeartPillButton(
                         isFavorite = isFavorite,
                         contentDescription = if (isFavorite) "Remove from favorite themes" else "Add to favorite themes",
-                        accentColor = animPrimary,
+                        accentColor = heroPrimary,
                         isDarkSurface = heroTheme.isDark,
                         testTag = "hero_favorite_button",
                         onClick = onToggleFavorite
@@ -852,18 +838,17 @@ private fun ThemeHeroPreviewCard(
 
                     Box(
                         modifier = Modifier
-                            .springPressScale(0.94f)
                             .clip(RoundedCornerShape(10.dp))
                             .background(
                                 when {
                                     isLocked -> Color(0xFFFFD700)
-                                    isApplied -> animPrimary.copy(alpha = 0.22f)
-                                    else -> animPrimary
+                                    isApplied -> heroTheme.card.copy(alpha = 0.85f)
+                                    else -> heroPrimary
                                 }
                             )
                             .border(
                                 0.8.dp,
-                                if (isApplied && !isLocked) animPrimary else Color.Transparent,
+                                if (isApplied && !isLocked) heroPrimary else Color.Transparent,
                                 RoundedCornerShape(10.dp)
                             )
                             .clickable { onUnlockOrApply() }
@@ -881,8 +866,8 @@ private fun ThemeHeroPreviewCard(
                             fontWeight = FontWeight.Bold,
                             color = when {
                                 isLocked -> Color(0xFF1F1600)
-                                isApplied -> if (animPrimary == Color.White) heroTheme.textPrimary else animPrimary
-                                else -> if (ThemeStyles.isLightColor(animPrimary)) Color.Black else Color.White
+                                isApplied -> heroAccentText
+                                else -> heroOnPrimary
                             },
                             maxLines = 1
                         )
@@ -898,13 +883,13 @@ private fun ThemeHeroPreviewCard(
                     .surface3DCard(
                         shape = miniCardShape,
                         isLight = !heroTheme.isDark,
-                        primaryColor = animPrimary,
+                        primaryColor = heroPrimary,
                         isGlass = heroTheme.isGlass,
                         elevationDp = 3.dp
                     )
                     .clip(miniCardShape)
-                    .background(animCardColor)
-                    .border(0.8.dp, animBorder, miniCardShape)
+                    .background(cardColor)
+                    .border(0.8.dp, heroBorder, miniCardShape)
                     .padding(horizontal = 10.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
@@ -937,7 +922,7 @@ private fun ThemeHeroPreviewCard(
                                         Modifier.surface3DCard(
                                             shape = cellShape,
                                             isLight = !heroTheme.isDark,
-                                            primaryColor = animPrimary,
+                                            primaryColor = heroPrimary,
                                             elevationDp = 2.dp
                                         )
                                     } else {
@@ -946,12 +931,12 @@ private fun ThemeHeroPreviewCard(
                                 )
                                 .clip(cellShape)
                                 .background(
-                                    if (done) animPrimary.copy(alpha = if (idx == 4) 0.28f else 0.18f)
+                                    if (done) heroPrimary.copy(alpha = if (idx == 4) 0.28f else 0.18f)
                                     else heroTheme.background.copy(alpha = 0.45f)
                                 )
                                 .border(
                                     width = if (idx == 4) 1.4.dp else 0.8.dp,
-                                    color = if (done) animPrimary.copy(alpha = 0.78f) else heroTheme.border.copy(alpha = 0.45f),
+                                    color = if (done) heroPrimary.copy(alpha = 0.78f) else heroTheme.border.copy(alpha = 0.45f),
                                     shape = cellShape
                                 ),
                             contentAlignment = Alignment.Center
@@ -961,7 +946,7 @@ private fun ThemeHeroPreviewCard(
                                 fontFamily = appFont,
                                 fontSize = 9.5.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (done) (if (animPrimary == Color.White) heroTheme.textPrimary else animPrimary) else heroTheme.textSecondary
+                                color = if (done) heroAccentText else heroTheme.textSecondary
                             )
                         }
                     }
@@ -977,6 +962,8 @@ private fun ThemeCategoryFilterChip(
     selected: Boolean,
     isSpecialHighlight: Boolean,
     primaryColor: Color,
+    accentTextColor: Color,
+    isLightSurface: Boolean,
     cardBgColor: Color,
     borderColor: Color,
     textColor: Color,
@@ -985,47 +972,32 @@ private fun ThemeCategoryFilterChip(
     onClick: () -> Unit
 ) {
     val accentGold = Color(0xFFD99B00)
-    val bg by animateColorAsState(
-        targetValue = when {
-            isSpecialHighlight && selected -> Color(0xFFFFD700).copy(alpha = 0.25f)
-            isSpecialHighlight -> Color(0xFFFFD700).copy(alpha = 0.11f)
-            selected -> primaryColor.copy(alpha = 0.20f)
-            else -> cardBgColor
-        },
-        animationSpec = tween(180),
-        label = "chip_bg_$testTag"
-    )
-    val stroke by animateColorAsState(
-        targetValue = when {
-            isSpecialHighlight -> accentGold.copy(alpha = if (selected) 0.92f else 0.45f)
-            selected -> primaryColor
-            else -> borderColor
-        },
-        animationSpec = tween(180),
-        label = "chip_stroke_$testTag"
-    )
-    val chipScale by animateFloatAsState(
-        targetValue = if (selected) 1.03f else 1f,
-        animationSpec = MotionSpecs.BouncyPopSpring,
-        label = "chip_scale_$testTag"
-    )
+    val bg = when {
+        isSpecialHighlight && selected -> Color(0xFFFFD700).copy(alpha = 0.25f)
+        isSpecialHighlight -> Color(0xFFFFD700).copy(alpha = 0.11f)
+        selected -> primaryColor.copy(alpha = 0.20f)
+        else -> cardBgColor
+    }
+    val stroke = when {
+        isSpecialHighlight -> accentGold.copy(alpha = if (selected) 0.92f else 0.45f)
+        selected -> primaryColor
+        else -> borderColor
+    }
     val labelColor = when {
         isSpecialHighlight -> if (selected) textColor else textColor.copy(alpha = 0.88f)
-        selected -> if (primaryColor == Color.White) textColor else primaryColor
+        selected -> accentTextColor
         else -> textColor
     }
     val chipShape = RoundedCornerShape(16.dp)
 
     Box(
         modifier = Modifier
-            .scale(chipScale)
-            .springPressScale(0.94f)
             .heightIn(min = 38.dp)
             .then(
                 if (selected) {
                     Modifier.surface3DCard(
                         shape = chipShape,
-                        isLight = ThemeStyles.isLightColor(textColor).not(),
+                        isLight = isLightSurface,
                         primaryColor = primaryColor,
                         elevationDp = 4.dp
                     )
@@ -1060,7 +1032,7 @@ private fun ThemeSectionHeader(
     subtitle: String,
     count: Int,
     appFont: FontFamily,
-    primaryColor: Color,
+    accentTextColor: Color,
     textColor: Color,
     secondaryTextColor: Color,
     cardBgColor: Color,
@@ -1105,7 +1077,7 @@ private fun ThemeSectionHeader(
                 fontFamily = appFont,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
-                color = if (primaryColor == Color.White) textColor else primaryColor
+                color = accentTextColor
             )
         }
     }
@@ -1126,29 +1098,20 @@ fun ThemeSwatchCard(
 ) {
     val isSelected = selectedTheme == theme.id
     val isLocked = theme.isSupporterOnly && !isSupporter
-    val cardScale by animateFloatAsState(
-        targetValue = if (isSelected) 1.02f else 1f,
-        animationSpec = MotionSpecs.BouncyPopSpring,
-        label = "swatch_scale_${theme.id}"
-    )
-    val borderColorAnim by animateColorAsState(
-        targetValue = when {
-            isSelected -> theme.primary
-            isPreviewed -> theme.primary.copy(alpha = 0.65f)
-            theme.isGlass -> Color.White.copy(alpha = if (theme.isDark) 0.34f else 0.88f)
-            else -> theme.border.copy(alpha = 0.55f)
-        },
-        animationSpec = tween(200),
-        label = "swatch_border_${theme.id}"
-    )
+    val borderColor = when {
+        isSelected -> theme.primary
+        isPreviewed -> theme.primary.copy(alpha = 0.65f)
+        theme.isGlass -> Color.White.copy(alpha = if (theme.isDark) 0.34f else 0.88f)
+        else -> theme.border.copy(alpha = 0.55f)
+    }
+    val swatchAccentText = ThemeStyles.accentOnSurface(theme.primary, theme.card, fallbackInk = theme.textPrimary)
+    val swatchOnPrimary = ThemeStyles.contrastOn(theme.primary)
     val cardShape = RoundedCornerShape(16.dp)
 
     Column(
         horizontalAlignment = Alignment.Start,
         modifier = Modifier
             .fillMaxWidth()
-            .scale(cardScale)
-            .springPressScale(0.95f)
             .testTag("theme_card_${theme.id}")
     ) {
         Box(
@@ -1165,7 +1128,7 @@ fun ThemeSwatchCard(
                 .clip(cardShape)
                 .border(
                     width = if (isSelected) 2.2.dp else if (theme.isGlass) 1.1.dp else 0.8.dp,
-                    color = borderColorAnim,
+                    color = borderColor,
                     shape = cardShape
                 )
                 .clickable { onSelect() }
@@ -1236,7 +1199,7 @@ fun ThemeSwatchCard(
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = appFont,
-                            color = if (theme.primary == Color.White) theme.textPrimary else theme.primary
+                            color = swatchAccentText
                         )
                     }
                 }
@@ -1291,7 +1254,7 @@ fun ThemeSwatchCard(
                 }
             }
 
-            // Lock or animated Check badge
+            // Lock or Check badge
             if (isLocked) {
                 Box(
                     modifier = Modifier
@@ -1309,29 +1272,22 @@ fun ThemeSwatchCard(
                         modifier = Modifier.size(12.dp)
                     )
                 }
-            } else {
-                androidx.compose.animation.AnimatedVisibility(
-                    visible = isSelected,
-                    enter = scaleIn(MotionSpecs.BouncyPopSpring) + fadeIn(tween(150)),
-                    exit = scaleOut(tween(120)) + fadeOut(tween(120)),
+            } else if (isSelected) {
+                Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(7.dp)
+                        .size(20.dp)
+                        .clip(CircleShape)
+                        .background(theme.primary),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(20.dp)
-                            .clip(CircleShape)
-                            .background(theme.primary),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = "Selected",
-                            tint = if (ThemeStyles.isLightColor(theme.primary)) Color.Black else Color.White,
-                            modifier = Modifier.size(13.dp)
-                        )
-                    }
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = "Selected",
+                        tint = swatchOnPrimary,
+                        modifier = Modifier.size(13.dp)
+                    )
                 }
             }
         }
@@ -1363,18 +1319,12 @@ fun CustomThemeSwatchCard(
 ) {
     val isSelected = selectedTheme == "custom"
     val isCustomLight = ThemeStyles.isLightColor(customBgColor)
-    val cardScale by animateFloatAsState(
-        targetValue = if (isSelected) 1.015f else 1f,
-        animationSpec = MotionSpecs.BouncyPopSpring,
-        label = "custom_swatch_scale"
-    )
+    val customInk = ThemeStyles.contrastOn(customBgColor)
     val cardShape = RoundedCornerShape(16.dp)
     Column(
         horizontalAlignment = Alignment.Start,
         modifier = Modifier
             .fillMaxWidth()
-            .scale(cardScale)
-            .springPressScale(0.97f)
             .testTag("theme_card_custom")
     ) {
         Box(
@@ -1414,13 +1364,13 @@ fun CustomThemeSwatchCard(
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = appFont,
-                            color = if (isCustomLight) Color(0xFF141414) else Color.White
+                            color = customInk
                         )
                         Text(
                             text = "Adaptive luminance ink on your colors",
                             fontSize = 10.5.sp,
                             fontFamily = appFont,
-                            color = (if (isCustomLight) Color(0xFF141414) else Color.White).copy(alpha = 0.72f)
+                            color = customInk.copy(alpha = 0.72f)
                         )
                     }
                 }
@@ -1441,7 +1391,7 @@ fun CustomThemeSwatchCard(
                             .size(22.dp)
                             .clip(CircleShape)
                             .background(primaryColor)
-                            .border(1.dp, Color.White.copy(alpha = 0.5f), CircleShape)
+                            .border(1.dp, customInk.copy(alpha = 0.45f), CircleShape)
                     )
                 }
             }

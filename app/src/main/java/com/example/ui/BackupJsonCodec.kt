@@ -68,6 +68,8 @@ object BackupJsonCodec {
             obj.put("isArchived", t.isArchived)
             obj.put("reminderEnabled", t.reminderEnabled)
             obj.put("reminderTime", t.reminderTime)
+            obj.put("pausedUntilDate", t.pausedUntilDate ?: "")
+            obj.put("defaultFocusMinutes", t.defaultFocusMinutes)
             trackersArr.put(obj)
         }
         root.put("trackers", trackersArr)
@@ -139,6 +141,8 @@ object BackupJsonCodec {
                 val isArchived = obj.optBoolean("isArchived", false)
                 val reminderEnabled = obj.optBoolean("reminderEnabled", false)
                 val reminderTime = obj.optString("reminderTime", "21:00").ifBlank { "21:00" }
+                val pausedUntilDate = obj.optString("pausedUntilDate", "").trim().takeIf { it.isNotEmpty() }
+                val defaultFocusMinutes = obj.optInt("defaultFocusMinutes", 25).coerceIn(5, 180)
 
                 parsedTrackers[id] = Tracker(
                     id = id,
@@ -154,7 +158,9 @@ object BackupJsonCodec {
                     weeklyTarget = weeklyTarget,
                     isArchived = isArchived,
                     reminderEnabled = reminderEnabled,
-                    reminderTime = reminderTime
+                    reminderTime = reminderTime,
+                    pausedUntilDate = pausedUntilDate,
+                    defaultFocusMinutes = defaultFocusMinutes
                 )
             }
         }

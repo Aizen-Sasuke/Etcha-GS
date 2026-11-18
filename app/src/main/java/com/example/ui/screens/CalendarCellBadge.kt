@@ -31,6 +31,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.ui.ThemeStyles
 
 /**
  * Returns true for shapes whose diagonal corners curve inward enough that corner-aligned badges clip.
@@ -77,7 +78,12 @@ fun BoxScope.CalendarCompletionIndicator(
     primaryColor: Color,
     textColor: Color,
     secondaryTextColor: Color,
-    appFont: FontFamily
+    appFont: FontFamily,
+    accentTextColor: Color = ThemeStyles.accentOnSurface(
+        primaryColor,
+        if (ThemeStyles.isLightColor(textColor)) Color(0xFF16181F) else Color(0xFFF5F3EC),
+        fallbackInk = textColor
+    )
 ) {
     val isCurved = isCurvedCalendarShape(cellShapeKey)
     val isDiamond = cellShapeKey == "diamond"
@@ -153,7 +159,7 @@ fun BoxScope.CalendarCompletionIndicator(
             totalSum == 2 -> 0.78f
             else -> 0.68f
         }
-        val iconColor = if (primaryColor == Color.White) textColor else primaryColor
+        val iconColor = accentTextColor
 
         when (checkmarkStyleName) {
             "dot" -> Box(
@@ -211,7 +217,7 @@ fun BoxScope.CalendarCompletionIndicator(
             )
         }
     } else if (isPartial) {
-        val iconColor = if (primaryColor == Color.White) textColor else primaryColor
+        val iconColor = accentTextColor
         when (checkmarkStyleName) {
             "dot" -> Box(
                 modifier = Modifier
@@ -301,7 +307,7 @@ fun BoxScope.CalendarCompletionIndicator(
         text = dayNumber.toString(),
         modifier = numeralModifier,
         color = when {
-            isToday -> if (isCompleted) textColor else (if (primaryColor == Color.White) textColor else primaryColor)
+            isToday -> if (isCompleted) textColor else accentTextColor
             isCurrentMonth -> textColor.copy(alpha = if (isCompleted) 0.96f else 0.85f)
             else -> secondaryTextColor.copy(alpha = 0.32f)
         },
@@ -327,9 +333,14 @@ fun CalendarWeekBadge(
     textColor: Color,
     secondaryTextColor: Color,
     borderColor: Color,
-    appFont: FontFamily
+    appFont: FontFamily,
+    accentTextColor: Color = ThemeStyles.accentOnSurface(
+        primaryColor,
+        if (ThemeStyles.isLightColor(textColor)) Color(0xFF16181F) else Color(0xFFF5F3EC),
+        fallbackInk = textColor
+    )
 ) {
-    val accentTint = if (primaryColor == Color.White) textColor else primaryColor
+    val accentTint = accentTextColor
     when {
         isDone -> {
             Box(

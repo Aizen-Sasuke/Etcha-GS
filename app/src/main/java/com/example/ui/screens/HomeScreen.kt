@@ -1,16 +1,17 @@
 package com.example.ui.screens
 
-import androidx.compose.animation.*
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.pager.PagerState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.*
@@ -26,15 +27,17 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.data.HabitEntry
+import com.example.ui.FocusSessionState
 import com.example.ui.HabitStats
 import com.example.ui.HabitViewModel
 import com.example.ui.ThemeStyles
 import com.example.ui.TodayDashboardState
 import com.example.ui.TodayHabitItem
 import com.example.ui.TrackerConfig
+import com.example.ui.VacationPauseHelper
+import com.example.ui.VacationPauseState
 import com.example.ui.components.ConfettiCelebration
 import com.example.ui.components.MotionSpecs
-import com.example.ui.components.springPressScale
 import com.example.ui.components.surface3DCard
 import java.time.LocalDate
 import java.time.YearMonth
@@ -53,12 +56,13 @@ class HomeScreenDialogState {
     var showAddTrackerDialog by mutableStateOf(false)
     var trackerToArchive by mutableStateOf<TrackerConfig?>(null)
     var trackerToDelete by mutableStateOf<TrackerConfig?>(null)
-    var trackerToManage by mutableStateOf<TrackerConfig?>(null)
-    var trackerToEdit by mutableStateOf<TrackerConfig?>(null)
+    var trackerForSettings by mutableStateOf<TrackerConfig?>(null)
+    var settingsInitialTab by mutableIntStateOf(0)
     var detailItemForTodaySheet by mutableStateOf<TodayHabitItem?>(null)
     var showFreezeDialog by mutableStateOf(false)
 }
 
+@Immutable
 data class HomeThemeConfig(
     val selectedTheme: String,
     val bgColor: Color,
@@ -71,13 +75,20 @@ data class HomeThemeConfig(
     val cellShape: Shape,
     val checkmarkStyleName: String,
     val cellShapeKey: String = "rounded_square",
-    val modalBgColor: Color = cardBgColor
+    val modalBgColor: Color = cardBgColor,
+    val onPrimaryColor: Color = ThemeStyles.contrastOn(primaryColor),
+    val accentTextColor: Color = ThemeStyles.accentOnSurface(primaryColor, modalBgColor, fallbackInk = textColor),
+    val neutralWellColor: Color = ThemeStyles.getNeutralWellColor(selectedTheme),
+    val dangerColor: Color = ThemeStyles.semanticDangerColor(ThemeStyles.isLightColor(modalBgColor.copy(alpha = 1f))),
+    val onDangerColor: Color = ThemeStyles.contrastOn(dangerColor),
+    val positiveColor: Color = ThemeStyles.semanticPositiveColor(ThemeStyles.isLightColor(modalBgColor.copy(alpha = 1f)))
 )
 
 @Composable
 fun HomeScreen(
     viewModel: HabitViewModel,
     modifier: Modifier = Modifier,
+    isTwoPane: Boolean = false,
     onNavigateToReports: (String) -> Unit = {},
     onNavigateToHistory: (String) -> Unit = {}
 ) {
@@ -120,53 +131,36 @@ fun HomeScreen(
     val customBgHex by viewModel.customBackgroundColor.collectAsState()
     val isGlassTheme = ThemeStyles.isGlassTheme(selectedTheme)
 
-    val animatedBg by animateColorAsState(
-        targetValue = ThemeStyles.getBackgroundColor(selectedTheme, customBgHex),
-        animationSpec = tween(260),
-        label = "home_bg"
-    )
-    val animatedPrimary by animateColorAsState(
-        targetValue = ThemeStyles.getPrimaryColor(selectedTheme, customHex),
-        animationSpec = tween(260),
-        label = "home_primary"
-    )
-    val animatedCardBg by animateColorAsState(
-        targetValue = ThemeStyles.getCardBackgroundColor(selectedTheme, customBgHex),
-        animationSpec = tween(260),
-        label = "home_card_bg"
-    )
-    val animatedBorder by animateColorAsState(
-        targetValue = ThemeStyles.getBorderColor(selectedTheme, customBgHex),
-        animationSpec = tween(260),
-        label = "home_border"
-    )
-    val modalBgColor = ThemeStyles.getOpaqueCardColor(selectedTheme, customBgHex)
+    val palette = remember(selectedTheme, customHex, customBgHex) {
+        ThemeStyles.resolvePalette(selectedTheme, customHex, customBgHex)
+    }
 
     val themeConfig = remember(
         selectedTheme,
-        animatedBg,
-        animatedPrimary,
-        animatedCardBg,
-        animatedBorder,
-        modalBgColor,
-        customBgHex,
+        palette,
         selectedFontName,
         calendarCellShapeName,
         checkmarkStyleName
     ) {
         HomeThemeConfig(
             selectedTheme = selectedTheme,
-            bgColor = animatedBg,
-            primaryColor = animatedPrimary,
-            cardBgColor = animatedCardBg,
-            borderColor = animatedBorder,
-            textColor = ThemeStyles.getTextColor(selectedTheme, customBgHex),
-            secondaryTextColor = ThemeStyles.getSecondaryTextColor(selectedTheme, customBgHex),
+            bgColor = palette.background,
+            primaryColor = palette.primary,
+            cardBgColor = palette.cardSurface,
+            borderColor = palette.border,
+            textColor = palette.textPrimary,
+            secondaryTextColor = palette.textSecondary,
             appFont = ThemeStyles.getSelectedFontFamily(selectedFontName),
             cellShapeKey = calendarCellShapeName,
             cellShape = ThemeStyles.getCalendarCellShape(calendarCellShapeName),
             checkmarkStyleName = checkmarkStyleName,
-            modalBgColor = modalBgColor
+            modalBgColor = palette.modalSurface,
+            onPrimaryColor = palette.onPrimary,
+            accentTextColor = palette.accentOnSurface,
+            neutralWellColor = palette.neutralWell,
+            dangerColor = palette.danger,
+            onDangerColor = palette.onDanger,
+            positiveColor = palette.positive
         )
     }
 
@@ -178,6 +172,8 @@ fun HomeScreen(
     val supporterBadgeEnabled by viewModel.supporterBadgeEnabled.collectAsState()
     val supporterVaultFreezes by viewModel.supporterVaultFreezes.collectAsState()
     val showDemoBanner by viewModel.showDemoBanner.collectAsState()
+    val vacationState by viewModel.vacationState.collectAsState()
+    val focusSession by viewModel.focusSession.collectAsState()
 
     val triggerQuickCheckInForTracker: (String, String, String?) -> Unit = { trackerId, dateStr, mood ->
         val targetTracker = trackers.find { it.id == trackerId } ?: activeTracker
@@ -254,13 +250,18 @@ fun HomeScreen(
             selectedMonthEntriesCount = selectedMonthEntriesCount,
             showSupporterBadge = isSupporter && supporterBadgeEnabled,
             showDemoBanner = showDemoBanner,
+            isTwoPane = isTwoPane,
+            vacationState = vacationState,
             themeConfig = themeConfig,
             onDismissDemoBanner = { viewModel.dismissDemoBanner() },
             onClearDemoTracker = { viewModel.clearDemoTracker() },
             onFreezeClick = { dialogState.showFreezeDialog = true },
             onFilterChange = { selectedRoutineFilter = it },
             onSelectTracker = { viewModel.selectTracker(it) },
-            onLongClickTracker = { dialogState.trackerToManage = it },
+            onLongClickTracker = {
+                dialogState.settingsInitialTab = 0
+                dialogState.trackerForSettings = it
+            },
             onAddTrackerClick = { dialogState.showAddTrackerDialog = true },
             onOpenArchivedClick = { dialogState.showArchivedHabitsSheet = true },
             onReorder = { viewModel.reorderTrackers(it) },
@@ -278,17 +279,18 @@ fun HomeScreen(
                 dialogState.journalTargetDate = today
                 dialogState.showDailyJournalDialog = true
             },
+            onStartFocus = { viewModel.openFocusSheet(activeTracker) },
             onMonthPickerClick = { dialogState.showMonthPicker = true },
             onCellClick = { dateStr -> triggerQuickCheckInForTracker(activeTracker.id, dateStr, null) },
             onCellLongClick = { date -> dialogState.selectedDateForDetails = date }
         )
 
         // Floating Quick Add Button
-        val isLight = ThemeStyles.isLightTheme(selectedTheme, customBgHex)
+        val isLight = !palette.isDark
         FloatingActionButton(
             onClick = { dialogState.showQuickAddDialog = true },
             containerColor = themeConfig.primaryColor,
-            contentColor = if (themeConfig.primaryColor == Color.White) Color.Black else Color.White,
+            contentColor = themeConfig.onPrimaryColor,
             shape = CircleShape,
             elevation = FloatingActionButtonDefaults.elevation(
                 defaultElevation = 6.dp,
@@ -298,7 +300,6 @@ fun HomeScreen(
                 .align(Alignment.BottomEnd)
                 .padding(bottom = 16.dp, end = 16.dp)
                 .size(56.dp)
-                .springPressScale(pressedScale = 0.89f, depressDp = 2.dp)
                 .surface3DCard(
                     shape = CircleShape,
                     isLight = isLight,
@@ -323,11 +324,18 @@ fun HomeScreen(
                 .padding(bottom = 76.dp)
                 .testTag("undo_snackbar")
         ) { snackbarData ->
+            val snackContainer = if (isLight) Color(0xFF1C1F26) else themeConfig.modalBgColor
+            val snackContent = if (isLight) Color.White else themeConfig.textColor
+            val snackAction = ThemeStyles.accentOnSurface(
+                accent = themeConfig.primaryColor,
+                surface = snackContainer,
+                fallbackInk = snackContent
+            )
             Snackbar(
                 snackbarData = snackbarData,
-                containerColor = if (isLight) Color(0xFF1E1E1E) else Color(0xFF2C2C2C),
-                contentColor = Color.White,
-                actionColor = themeConfig.primaryColor,
+                containerColor = snackContainer,
+                contentColor = snackContent,
+                actionColor = snackAction,
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.surface3DCard(
                     shape = RoundedCornerShape(12.dp),
@@ -349,6 +357,8 @@ fun HomeScreen(
             completionsByDate = completionsByDate,
             currentYearMonth = currentYearMonth,
             today = todayDashboard.effectiveToday,
+            vacationState = vacationState,
+            focusSession = focusSession,
             onYearMonthSelected = { selectedYM ->
                 val monthsDiff = ChronoUnit.MONTHS.between(baseMonth, selectedYM).toInt()
                 coroutineScope.launch {
@@ -386,6 +396,8 @@ private fun HomeScreenContent(
     selectedMonthEntriesCount: Int,
     showSupporterBadge: Boolean,
     showDemoBanner: Boolean,
+    isTwoPane: Boolean,
+    vacationState: VacationPauseState,
     themeConfig: HomeThemeConfig,
     onDismissDemoBanner: () -> Unit,
     onClearDemoTracker: () -> Unit,
@@ -401,132 +413,276 @@ private fun HomeScreenContent(
     onMoodTagSelect: (String?) -> Unit,
     onQuickCheckIn: () -> Unit,
     onOpenJournal: () -> Unit,
+    onStartFocus: () -> Unit,
     onMonthPickerClick: () -> Unit,
     onCellClick: (String) -> Unit,
     onCellLongClick: (LocalDate) -> Unit
 ) {
-    val screenScrollState = rememberScrollState()
+    val todayDateString = remember(today) { today.toString() }
+    val todayEntries = completionsByDate[todayDateString] ?: emptyList()
+    val todayCount = todayEntries.sumOf { it.count }
+    val isPausedToday = remember(today, activeTracker.pausedUntilDate, vacationState) {
+        VacationPauseHelper.isPausedOnEffectiveDate(today, activeTracker.pausedUntilDate, vacationState)
+    }
+    val pauseBadge = remember(today, activeTracker.pausedUntilDate, vacationState) {
+        VacationPauseHelper.formatTrackerPauseBadge(activeTracker.pausedUntilDate, vacationState, today)
+    }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(screenScrollState)
-            .padding(bottom = 24.dp)
-    ) {
-        Spacer(modifier = Modifier.height(8.dp))
+    if (isTwoPane) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Spacer(modifier = Modifier.height(8.dp))
 
-        // 1. Header Row
-        HomeHeaderRow(
-            habitIcon = habitIcon,
-            habitTitle = habitTitle,
-            activeTracker = activeTracker,
-            stats = stats,
-            freezeDate = freezeDate,
-            primaryColor = themeConfig.primaryColor,
-            textColor = themeConfig.textColor,
-            secondaryTextColor = themeConfig.secondaryTextColor,
-            appFont = themeConfig.appFont,
-            showSupporterBadge = showSupporterBadge,
-            onFreezeClick = onFreezeClick
-        )
-
-        AnimatedVisibility(
-            visible = showDemoBanner,
-            enter = expandVertically(animationSpec = MotionSpecs.CardRevealSizeSpring) + fadeIn(tween(220)),
-            exit = shrinkVertically(animationSpec = MotionSpecs.CardRevealSizeSpring) + fadeOut(tween(160))
-        ) {
-            DemoTrackerBannerCard(
-                themeConfig = themeConfig,
-                onDismiss = onDismissDemoBanner,
-                onClearDemo = onClearDemoTracker
+            HomeHeaderRow(
+                habitIcon = habitIcon,
+                habitTitle = habitTitle,
+                activeTracker = activeTracker,
+                stats = stats,
+                freezeDate = freezeDate,
+                primaryColor = themeConfig.primaryColor,
+                textColor = themeConfig.textColor,
+                secondaryTextColor = themeConfig.secondaryTextColor,
+                appFont = themeConfig.appFont,
+                showSupporterBadge = showSupporterBadge,
+                cardBgColor = themeConfig.modalBgColor,
+                onFreezeClick = onFreezeClick
             )
+
+            AnimatedVisibility(
+                visible = showDemoBanner,
+                enter = expandVertically(animationSpec = MotionSpecs.CardRevealSizeSpring) + fadeIn(tween(220)),
+                exit = shrinkVertically(animationSpec = MotionSpecs.CardRevealSizeSpring) + fadeOut(tween(160))
+            ) {
+                DemoTrackerBannerCard(
+                    themeConfig = themeConfig,
+                    onDismiss = onDismissDemoBanner,
+                    onClearDemo = onClearDemoTracker
+                )
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .testTag("home_two_pane_layout"),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(0.95f)
+                        .fillMaxHeight(),
+                    contentPadding = PaddingValues(bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    item(key = "habit_bar") {
+                        HomeHabitBar(
+                            trackers = trackers,
+                            selectedTrackerId = selectedTrackerId,
+                            selectedRoutineFilter = selectedRoutineFilter,
+                            archivedCount = archivedCount,
+                            primaryColor = themeConfig.primaryColor,
+                            cardBgColor = themeConfig.cardBgColor,
+                            borderColor = themeConfig.borderColor,
+                            textColor = themeConfig.textColor,
+                            secondaryTextColor = themeConfig.secondaryTextColor,
+                            appFont = themeConfig.appFont,
+                            onFilterChange = onFilterChange,
+                            onSelectTracker = onSelectTracker,
+                            onLongClickTracker = onLongClickTracker,
+                            onAddTrackerClick = onAddTrackerClick,
+                            onOpenArchivedClick = onOpenArchivedClick,
+                            onReorder = onReorder
+                        )
+                    }
+
+                    item(key = "today_dashboard") {
+                        UnifiedTodayDashboardCard(
+                            dashboard = todayDashboard,
+                            selectedTrackerId = selectedTrackerId,
+                            selectedRoutineFilter = selectedRoutineFilter,
+                            themeConfig = themeConfig,
+                            onQuickIncrement = onDashboardQuickIncrement,
+                            onOpenHabitDetail = onDashboardOpenDetail,
+                            onAddTrackerClick = onAddTrackerClick
+                        )
+                    }
+
+                    item(key = "today_status") {
+                        TodayStatusCard(
+                            activeTracker = activeTracker,
+                            today = today,
+                            todayCount = todayCount,
+                            completionsByDate = completionsByDate,
+                            selectedMoodTag = selectedMoodTag,
+                            stats = stats,
+                            primaryColor = themeConfig.primaryColor,
+                            cardBgColor = themeConfig.cardBgColor,
+                            borderColor = themeConfig.borderColor,
+                            textColor = themeConfig.textColor,
+                            secondaryTextColor = themeConfig.secondaryTextColor,
+                            appFont = themeConfig.appFont,
+                            selectedTheme = themeConfig.selectedTheme,
+                            onMoodTagSelect = onMoodTagSelect,
+                            onQuickCheckIn = onQuickCheckIn,
+                            onOpenJournal = onOpenJournal,
+                            isPausedToday = isPausedToday,
+                            pauseBadge = pauseBadge,
+                            onStartFocus = onStartFocus
+                        )
+                    }
+                }
+
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(1.05f)
+                        .fillMaxHeight(),
+                    contentPadding = PaddingValues(bottom = 24.dp)
+                ) {
+                    item(key = "calendar_section") {
+                        HomeCalendarSection(
+                            baseMonth = baseMonth,
+                            initialPage = initialPage,
+                            pagerState = pagerState,
+                            currentYearMonth = currentYearMonth,
+                            today = today,
+                            selectedMonthEntriesCount = selectedMonthEntriesCount,
+                            activeTracker = activeTracker,
+                            completionsByDate = completionsByDate,
+                            primaryColor = themeConfig.primaryColor,
+                            cardBgColor = themeConfig.cardBgColor,
+                            borderColor = themeConfig.borderColor,
+                            textColor = themeConfig.textColor,
+                            secondaryTextColor = themeConfig.secondaryTextColor,
+                            appFont = themeConfig.appFont,
+                            cellShapeKey = themeConfig.cellShapeKey,
+                            cellShape = themeConfig.cellShape,
+                            checkmarkStyleName = themeConfig.checkmarkStyleName,
+                            selectedTheme = themeConfig.selectedTheme,
+                            onMonthPickerClick = onMonthPickerClick,
+                            onCellClick = onCellClick,
+                            onCellLongClick = onCellLongClick
+                        )
+                    }
+                }
+            }
         }
+    } else {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            item(key = "header") {
+                HomeHeaderRow(
+                    habitIcon = habitIcon,
+                    habitTitle = habitTitle,
+                    activeTracker = activeTracker,
+                    stats = stats,
+                    freezeDate = freezeDate,
+                    primaryColor = themeConfig.primaryColor,
+                    textColor = themeConfig.textColor,
+                    secondaryTextColor = themeConfig.secondaryTextColor,
+                    appFont = themeConfig.appFont,
+                    showSupporterBadge = showSupporterBadge,
+                    cardBgColor = themeConfig.modalBgColor,
+                    onFreezeClick = onFreezeClick
+                )
+            }
 
-        Spacer(modifier = Modifier.height(6.dp))
+            if (showDemoBanner) {
+                item(key = "demo_banner") {
+                    DemoTrackerBannerCard(
+                        themeConfig = themeConfig,
+                        onDismiss = onDismissDemoBanner,
+                        onClearDemo = onClearDemoTracker
+                    )
+                }
+            }
 
-        // 2. Habits Navigation & Routine Bar
-        HomeHabitBar(
-            trackers = trackers,
-            selectedTrackerId = selectedTrackerId,
-            selectedRoutineFilter = selectedRoutineFilter,
-            archivedCount = archivedCount,
-            primaryColor = themeConfig.primaryColor,
-            cardBgColor = themeConfig.cardBgColor,
-            borderColor = themeConfig.borderColor,
-            textColor = themeConfig.textColor,
-            secondaryTextColor = themeConfig.secondaryTextColor,
-            appFont = themeConfig.appFont,
-            onFilterChange = onFilterChange,
-            onSelectTracker = onSelectTracker,
-            onLongClickTracker = onLongClickTracker,
-            onAddTrackerClick = onAddTrackerClick,
-            onOpenArchivedClick = onOpenArchivedClick,
-            onReorder = onReorder
-        )
+            item(key = "habit_bar") {
+                HomeHabitBar(
+                    trackers = trackers,
+                    selectedTrackerId = selectedTrackerId,
+                    selectedRoutineFilter = selectedRoutineFilter,
+                    archivedCount = archivedCount,
+                    primaryColor = themeConfig.primaryColor,
+                    cardBgColor = themeConfig.cardBgColor,
+                    borderColor = themeConfig.borderColor,
+                    textColor = themeConfig.textColor,
+                    secondaryTextColor = themeConfig.secondaryTextColor,
+                    appFont = themeConfig.appFont,
+                    onFilterChange = onFilterChange,
+                    onSelectTracker = onSelectTracker,
+                    onLongClickTracker = onLongClickTracker,
+                    onAddTrackerClick = onAddTrackerClick,
+                    onOpenArchivedClick = onOpenArchivedClick,
+                    onReorder = onReorder
+                )
+            }
 
-        Spacer(modifier = Modifier.height(4.dp))
+            item(key = "today_dashboard") {
+                UnifiedTodayDashboardCard(
+                    dashboard = todayDashboard,
+                    selectedTrackerId = selectedTrackerId,
+                    selectedRoutineFilter = selectedRoutineFilter,
+                    themeConfig = themeConfig,
+                    onQuickIncrement = onDashboardQuickIncrement,
+                    onOpenHabitDetail = onDashboardOpenDetail,
+                    onAddTrackerClick = onAddTrackerClick
+                )
+            }
 
-        // 2b. Unified Today Dashboard (All active habits progress, due/attention, quota, rest, bad-habit clean status)
-        UnifiedTodayDashboardCard(
-            dashboard = todayDashboard,
-            selectedTrackerId = selectedTrackerId,
-            selectedRoutineFilter = selectedRoutineFilter,
-            themeConfig = themeConfig,
-            onQuickIncrement = onDashboardQuickIncrement,
-            onOpenHabitDetail = onDashboardOpenDetail,
-            onAddTrackerClick = onAddTrackerClick
-        )
+            item(key = "today_status") {
+                TodayStatusCard(
+                    activeTracker = activeTracker,
+                    today = today,
+                    todayCount = todayCount,
+                    completionsByDate = completionsByDate,
+                    selectedMoodTag = selectedMoodTag,
+                    stats = stats,
+                    primaryColor = themeConfig.primaryColor,
+                    cardBgColor = themeConfig.cardBgColor,
+                    borderColor = themeConfig.borderColor,
+                    textColor = themeConfig.textColor,
+                    secondaryTextColor = themeConfig.secondaryTextColor,
+                    appFont = themeConfig.appFont,
+                    selectedTheme = themeConfig.selectedTheme,
+                    onMoodTagSelect = onMoodTagSelect,
+                    onQuickCheckIn = onQuickCheckIn,
+                    onOpenJournal = onOpenJournal,
+                    isPausedToday = isPausedToday,
+                    pauseBadge = pauseBadge,
+                    onStartFocus = onStartFocus
+                )
+            }
 
-        Spacer(modifier = Modifier.height(4.dp))
-
-        // 3. Today's Status & Action Card (Focused habit)
-        val todayDateString = remember(today) { today.toString() }
-        val todayEntries = completionsByDate[todayDateString] ?: emptyList()
-        val todayCount = todayEntries.sumOf { it.count }
-
-        TodayStatusCard(
-            activeTracker = activeTracker,
-            today = today,
-            todayCount = todayCount,
-            completionsByDate = completionsByDate,
-            selectedMoodTag = selectedMoodTag,
-            stats = stats,
-            primaryColor = themeConfig.primaryColor,
-            cardBgColor = themeConfig.cardBgColor,
-            borderColor = themeConfig.borderColor,
-            textColor = themeConfig.textColor,
-            secondaryTextColor = themeConfig.secondaryTextColor,
-            appFont = themeConfig.appFont,
-            selectedTheme = themeConfig.selectedTheme,
-            onMoodTagSelect = onMoodTagSelect,
-            onQuickCheckIn = onQuickCheckIn,
-            onOpenJournal = onOpenJournal
-        )
-
-        // 4. Calendar Grid Section
-        HomeCalendarSection(
-            baseMonth = baseMonth,
-            initialPage = initialPage,
-            pagerState = pagerState,
-            currentYearMonth = currentYearMonth,
-            today = today,
-            selectedMonthEntriesCount = selectedMonthEntriesCount,
-            activeTracker = activeTracker,
-            completionsByDate = completionsByDate,
-            primaryColor = themeConfig.primaryColor,
-            cardBgColor = themeConfig.cardBgColor,
-            borderColor = themeConfig.borderColor,
-            textColor = themeConfig.textColor,
-            secondaryTextColor = themeConfig.secondaryTextColor,
-            appFont = themeConfig.appFont,
-            cellShapeKey = themeConfig.cellShapeKey,
-            cellShape = themeConfig.cellShape,
-            checkmarkStyleName = themeConfig.checkmarkStyleName,
-            selectedTheme = themeConfig.selectedTheme,
-            onMonthPickerClick = onMonthPickerClick,
-            onCellClick = onCellClick,
-            onCellLongClick = onCellLongClick
-        )
+            item(key = "calendar_section") {
+                HomeCalendarSection(
+                    baseMonth = baseMonth,
+                    initialPage = initialPage,
+                    pagerState = pagerState,
+                    currentYearMonth = currentYearMonth,
+                    today = today,
+                    selectedMonthEntriesCount = selectedMonthEntriesCount,
+                    activeTracker = activeTracker,
+                    completionsByDate = completionsByDate,
+                    primaryColor = themeConfig.primaryColor,
+                    cardBgColor = themeConfig.cardBgColor,
+                    borderColor = themeConfig.borderColor,
+                    textColor = themeConfig.textColor,
+                    secondaryTextColor = themeConfig.secondaryTextColor,
+                    appFont = themeConfig.appFont,
+                    cellShapeKey = themeConfig.cellShapeKey,
+                    cellShape = themeConfig.cellShape,
+                    checkmarkStyleName = themeConfig.checkmarkStyleName,
+                    selectedTheme = themeConfig.selectedTheme,
+                    onMonthPickerClick = onMonthPickerClick,
+                    onCellClick = onCellClick,
+                    onCellLongClick = onCellLongClick
+                )
+            }
+        }
     }
 }
 
@@ -541,6 +697,8 @@ private fun HomeScreenDialogsHost(
     completionsByDate: Map<String, List<HabitEntry>>,
     currentYearMonth: YearMonth,
     today: LocalDate,
+    vacationState: VacationPauseState,
+    focusSession: FocusSessionState,
     onYearMonthSelected: (YearMonth) -> Unit,
     onQuickCheckIn: (String, String, String?) -> Unit,
     onNavigateToHistory: (String) -> Unit,
@@ -559,28 +717,42 @@ private fun HomeScreenDialogsHost(
         selectedTheme = themeConfig.selectedTheme
     )
 
-    ManageTrackerSheet(
-        tracker = dialogState.trackerToManage,
-        onDismiss = { dialogState.trackerToManage = null },
-        onEdit = { config ->
-            dialogState.trackerToEdit = config
-            dialogState.trackerToManage = null
-        },
-        onArchive = { config ->
-            dialogState.trackerToArchive = config
-            dialogState.trackerToManage = null
-        },
-        onDelete = { id ->
-            val tr = trackers.find { it.id == id } ?: archivedTrackers.find { it.id == id }
-            dialogState.trackerToDelete = tr
-            dialogState.trackerToManage = null
-        },
+    UnifiedHabitSettingsSheet(
+        tracker = dialogState.trackerForSettings,
+        initialTab = dialogState.settingsInitialTab,
+        today = today,
+        vacationState = vacationState,
         canDelete = trackers.size + archivedTrackers.size > 1,
+        onDismiss = { dialogState.trackerForSettings = null },
+        onPauseUntil = { id, dateStr -> viewModel.setTrackerPausedUntil(id, dateStr) },
+        onArchive = { config -> dialogState.trackerToArchive = config },
+        onDelete = { config -> dialogState.trackerToDelete = config },
+        viewModel = viewModel,
         appFont = themeConfig.appFont,
         primaryColor = themeConfig.primaryColor,
         textColor = themeConfig.textColor,
         secondaryTextColor = themeConfig.secondaryTextColor,
-        cardBgColor = themeConfig.modalBgColor
+        cardBgColor = themeConfig.modalBgColor,
+        borderColor = themeConfig.borderColor,
+        selectedTheme = themeConfig.selectedTheme
+    )
+
+    FocusTimerSheet(
+        session = focusSession,
+        appFont = themeConfig.appFont,
+        primaryColor = themeConfig.primaryColor,
+        textColor = themeConfig.textColor,
+        secondaryTextColor = themeConfig.secondaryTextColor,
+        cardBgColor = themeConfig.modalBgColor,
+        borderColor = themeConfig.borderColor,
+        selectedTheme = themeConfig.selectedTheme,
+        onDismiss = { viewModel.dismissFocusSheet() },
+        onSelectMode = { viewModel.setFocusMode(it) },
+        onSelectDuration = { viewModel.setFocusDurationMinutes(it) },
+        onStartOrResume = { viewModel.startOrResumeFocus() },
+        onPause = { viewModel.pauseFocus() },
+        onReset = { viewModel.resetFocus() },
+        onCompleteAndLog = { viewModel.completeFocusAndLog() }
     )
 
     ArchiveTrackerDialog(
@@ -595,19 +767,6 @@ private fun HomeScreenDialogsHost(
         secondaryTextColor = themeConfig.secondaryTextColor,
         cardBgColor = themeConfig.modalBgColor,
         borderColor = themeConfig.borderColor
-    )
-
-    EditTrackerSheet(
-        tracker = dialogState.trackerToEdit,
-        onDismiss = { dialogState.trackerToEdit = null },
-        viewModel = viewModel,
-        appFont = themeConfig.appFont,
-        primaryColor = themeConfig.primaryColor,
-        textColor = themeConfig.textColor,
-        secondaryTextColor = themeConfig.secondaryTextColor,
-        cardBgColor = themeConfig.modalBgColor,
-        borderColor = themeConfig.borderColor,
-        selectedTheme = themeConfig.selectedTheme
     )
 
     DeleteTrackerDialog(
@@ -710,10 +869,12 @@ private fun HomeScreenDialogsHost(
             dialogState.showDailyJournalDialog = true
         },
         onOpenEdit = { item ->
-            dialogState.trackerToEdit = item.tracker
+            dialogState.settingsInitialTab = 0
+            dialogState.trackerForSettings = item.tracker
         },
         onViewHistory = onNavigateToHistory,
-        onViewReports = onNavigateToReports
+        onViewReports = onNavigateToReports,
+        onStartFocus = { cfg -> viewModel.openFocusSheet(cfg) }
     )
 
     if (dialogState.showDonateDialog) {
@@ -775,7 +936,7 @@ private fun HomeScreenDialogsHost(
                             text = "Vault Reserve: $vaultFreezes freezes available",
                             fontFamily = themeConfig.appFont,
                             fontWeight = FontWeight.SemiBold,
-                            color = themeConfig.primaryColor
+                            color = themeConfig.accentTextColor
                         )
                     }
                 }
@@ -793,7 +954,7 @@ private fun HomeScreenDialogsHost(
                         },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = themeConfig.primaryColor,
-                            contentColor = if (ThemeStyles.isLightColor(themeConfig.primaryColor)) Color.Black else Color.White
+                            contentColor = themeConfig.onPrimaryColor
                         )
                     ) {
                         Text(
@@ -810,7 +971,7 @@ private fun HomeScreenDialogsHost(
                         Text(
                             text = "Open Vault",
                             fontFamily = themeConfig.appFont,
-                            color = themeConfig.primaryColor,
+                            color = themeConfig.accentTextColor,
                             fontWeight = FontWeight.Bold
                         )
                     }

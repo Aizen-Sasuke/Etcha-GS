@@ -1,7 +1,9 @@
 package com.example.ui
 
+import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 
+@Immutable
 data class ThemeCategorySpec(
     val id: String,
     val title: String,
@@ -9,6 +11,7 @@ data class ThemeCategorySpec(
     val emoji: String
 )
 
+@Immutable
 data class AppTheme(
     val id: String,
     val name: String,

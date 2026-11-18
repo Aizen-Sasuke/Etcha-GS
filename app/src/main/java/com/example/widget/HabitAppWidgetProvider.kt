@@ -306,7 +306,8 @@ class HabitAppWidgetProvider : AppWidgetProvider() {
             primaryColor: Int,
             textColor: Int,
             secondaryTextColor: Int,
-            isDark: Boolean
+            isDark: Boolean,
+            accentTextColor: Int = primaryColor
         ): Bitmap {
             val w = widthPx.coerceAtLeast(140)
             val h = heightPx.coerceAtLeast(24)
@@ -346,7 +347,7 @@ class HabitAppWidgetProvider : AppWidgetProvider() {
             slots.forEachIndexed { idx, slot ->
                 val cx = horizPad + slotW * idx + slotW / 2f
 
-                labelPaint.color = if (slot.isToday) primaryColor else secondaryTextColor
+                labelPaint.color = if (slot.isToday) accentTextColor else secondaryTextColor
                 canvas.drawText(slot.letter, cx, textY, labelPaint)
 
                 when (slot.state) {
@@ -526,7 +527,8 @@ class HabitAppWidgetProvider : AppWidgetProvider() {
                 primaryColor = palette.primary,
                 textColor = palette.textPrimary,
                 secondaryTextColor = palette.textSecondary,
-                isDark = palette.isDark
+                isDark = palette.isDark,
+                accentTextColor = palette.accentOnCard
             )
             val progressBitmap = createProgressBarBitmap(
                 widthPx = (288 * density).toInt(),
@@ -545,7 +547,7 @@ class HabitAppWidgetProvider : AppWidgetProvider() {
                 isDoneState -> Triple(
                     ColorUtils.setAlphaComponent(palette.primary, if (palette.isDark) 52 else 36),
                     ColorUtils.setAlphaComponent(palette.primary, 155),
-                    if (palette.primary == Color.WHITE) palette.textPrimary else palette.primary
+                    palette.accentOnCard
                 )
                 else -> Triple(
                     palette.primary,
@@ -562,13 +564,7 @@ class HabitAppWidgetProvider : AppWidgetProvider() {
                 strokeWidthPx = if (actionStroke == Color.TRANSPARENT) 0f else 1.1f * density
             )
 
-            val streakTextColor = if (palette.primary == Color.WHITE && palette.isDark) {
-                palette.textPrimary
-            } else if (palette.primary == Color.BLACK && !palette.isDark) {
-                palette.textPrimary
-            } else {
-                palette.primary
-            }
+            val streakTextColor = palette.accentOnCard
 
             views.apply {
                 setImageViewBitmap(R.id.widget_bg_image, bgBitmap)
@@ -686,7 +682,8 @@ class HabitAppWidgetProvider : AppWidgetProvider() {
                 val isBad = tracker.type == "bad"
 
                 val metaText = when {
-                    isBad -> if (item.todayCount > 0) "Slip" else "Clean"
+                    isBad -> if (item.todayCount > 0) "Slip" else if (item.status == TodayHabitStatus.PAUSED) "Paused" else "Clean"
+                    item.status == TodayHabitStatus.PAUSED -> "Paused"
                     tracker.type == "misc" -> "${item.todayCount} logs"
                     target > 1 -> "${item.todayCount}/$target"
                     isDone -> "Done"
@@ -709,7 +706,7 @@ class HabitAppWidgetProvider : AppWidgetProvider() {
                     isDone -> {
                         btnText = context.getString(R.string.widget_row_done)
                         btnBg = doneBtnBitmap
-                        btnTextColor = if (palette.primary == Color.WHITE) palette.textPrimary else palette.primary
+                        btnTextColor = palette.accentOnCard
                         btnPi = buildOpenAppIntent(tracker.id)
                     }
                     else -> {
@@ -736,7 +733,7 @@ class HabitAppWidgetProvider : AppWidgetProvider() {
                 views.setTextViewText(rowTitleViews[i], tracker.title)
                 views.setTextColor(rowTitleViews[i], palette.textPrimary)
                 views.setTextViewText(rowMetaViews[i], metaText)
-                views.setTextColor(rowMetaViews[i], if (isDone) (if (palette.primary == Color.WHITE) palette.textPrimary else palette.primary) else palette.textSecondary)
+                views.setTextColor(rowMetaViews[i], if (isDone) palette.accentOnCard else palette.textSecondary)
                 views.setImageViewBitmap(rowBtnBgViews[i], btnBg)
                 views.setTextViewText(rowBtnViews[i], btnText)
                 views.setTextColor(rowBtnViews[i], btnTextColor)
@@ -871,7 +868,9 @@ class HabitAppWidgetProvider : AppWidgetProvider() {
                     weeklyTarget = t.weeklyTarget,
                     isArchived = t.isArchived,
                     reminderEnabled = t.reminderEnabled,
-                    reminderTime = t.reminderTime
+                    reminderTime = t.reminderTime,
+                    pausedUntilDate = t.pausedUntilDate,
+                    defaultFocusMinutes = t.defaultFocusMinutes
                 )
             }
             val dashboardState = TodayDashboardCalculator.build(
@@ -885,15 +884,18 @@ class HabitAppWidgetProvider : AppWidgetProvider() {
             val activeConfig = configs.first { it.id == activeTracker.id }
             val freezeHistory = prefsMap["streak_freeze_history"].orEmpty()
             val freezeActiveDate = prefsMap["streak_freeze_date"]?.takeIf { it.isNotBlank() }
+            val vacationState = com.example.ui.VacationPauseHelper.fromPreferences(prefsMap)
             val stats = HabitStatsCalculator.calculateStats(
                 list = activeEntries,
                 freezeActive = freezeActiveDate,
                 freezeHist = freezeHistory,
                 tracker = activeConfig,
-                today = effectiveToday
+                today = effectiveToday,
+                vacation = vacationState
             )
 
             val summaryHeader = when {
+                dashboardState.isVacationActive -> "TODAY · VACATION 🌴"
                 dashboardState.dueTotalCount > 0 && dashboardState.dueCompletedCount >= dashboardState.dueTotalCount ->
                     "TODAY · ALL ${dashboardState.dueTotalCount} DONE ✓"
                 dashboardState.dueTotalCount > 0 ->
@@ -909,6 +911,7 @@ class HabitAppWidgetProvider : AppWidgetProvider() {
             val isWeeklyQuota = activeTracker.frequencyType == "weekly_quota" || activeTracker.frequencyType == "3x_week"
 
             val badgeText = when {
+                activeItem?.status == TodayHabitStatus.PAUSED -> "🌴 Paused"
                 activeItem?.status == TodayHabitStatus.FROZEN -> "🧊 Frozen"
                 isWeeklyQuota -> "🎯 $weeklyDoneDays/${weeklyQuota}w"
                 else -> "🔥 ${stats.currentStreak}d"

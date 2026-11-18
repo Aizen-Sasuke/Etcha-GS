@@ -1,5 +1,6 @@
 package com.example.ui
 
+import androidx.compose.runtime.Immutable
 import com.example.data.HabitEntry
 import java.time.DayOfWeek
 import java.time.Instant
@@ -11,17 +12,20 @@ import java.time.format.TextStyle
 import java.time.temporal.ChronoUnit
 import java.util.Locale
 
+@Immutable
 data class MonthlyTrendPoint(
     val monthLabel: String,
     val fullMonthLabel: String,
     val count: Int
 )
 
+@Immutable
 data class DayOfWeekStat(
     val dayName: String,
     val count: Int
 )
 
+@Immutable
 data class WeeklyConsistencyPoint(
     val weekLabel: String,
     val completionPercent: Int,
@@ -29,12 +33,14 @@ data class WeeklyConsistencyPoint(
     val scheduledDays: Int
 )
 
+@Immutable
 data class MoodStat(
     val emoji: String,
     val count: Int,
     val fraction: Float
 )
 
+@Immutable
 data class TimeOfDayStat(
     val label: String,
     val icon: String,
@@ -42,6 +48,7 @@ data class TimeOfDayStat(
     val fraction: Float
 )
 
+@Immutable
 data class ReportAnalyticsSnapshot(
     val loggedDaysCount: Int = 0,
     val totalCount: Int = 0,

@@ -159,7 +159,7 @@ object SampleTrackerSeeder {
     fun seedFreshDatabase(db: SupportSQLiteDatabase, today: LocalDate = LocalDate.now()) {
         for (t in buildStarterTrackers()) {
             db.execSQL(
-                "INSERT OR IGNORE INTO trackers (id, title, icon, sortOrder, accentColor, type, frequencyType, targetDays, targetCount, timeOfDay, weeklyTarget, isArchived, reminderEnabled, reminderTime) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT OR IGNORE INTO trackers (id, title, icon, sortOrder, accentColor, type, frequencyType, targetDays, targetCount, timeOfDay, weeklyTarget, isArchived, reminderEnabled, reminderTime, pausedUntilDate, defaultFocusMinutes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 arrayOf<Any?>(
                     t.id,
                     t.title,
@@ -174,7 +174,9 @@ object SampleTrackerSeeder {
                     t.weeklyTarget,
                     if (t.isArchived) 1 else 0,
                     if (t.reminderEnabled) 1 else 0,
-                    t.reminderTime
+                    t.reminderTime,
+                    t.pausedUntilDate,
+                    t.defaultFocusMinutes
                 )
             )
         }
